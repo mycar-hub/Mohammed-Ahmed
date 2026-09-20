@@ -1,0 +1,6 @@
+{
+  "name": "Maître",
+  "description": "منصة متر القانونية المتكاملة لربط طالبي الخدمات القانونية بالمحامين المعتمدين مع نظام الضمان المالي والعروض والدردشة والنزاعات",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
