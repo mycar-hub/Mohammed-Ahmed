@@ -96,8 +96,13 @@ fun AuthScreen(
     desiredDegrees: List<String>,
     selectedGovs: List<String>,
     selectedCourts: List<String>,
-    selectedDistricts: List<String>
-  ) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ -> },
+    selectedDistricts: List<String>,
+    lawyerTitle: LawyerTitle,
+    bio: String,
+    officeAddressManually: String,
+    officeLatitude: Double?,
+    officeLongitude: Double?
+  ) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ -> },
   onRegisterSuccess: (name: String, phone: String, email: String, role: UserRole, idOrCr: String, license: String?, company: String?) -> Unit,
   onOpenOtpVerification: (phone: String) -> Unit,
   onOpenNafathVerification: () -> Unit,
@@ -127,7 +132,14 @@ fun AuthScreen(
   var clientIdBackUri by remember { mutableStateOf<String?>("id_card_back.jpg") }
 
   // Lawyer KYC Fields
-  var lawyerFullName by remember { mutableStateOf("المستشار سامح محمد العسقلاني") }
+  var lawyerTitle by remember { mutableStateOf(LawyerTitle.COUNSELOR) }
+  var lawyerFullName by remember { mutableStateOf("سامح محمد العسقلاني") }
+  var lawyerBio by remember { mutableStateOf("مستشار قانوني متخصص في القضايا التجارية والشركات والتحكيم وفض المنازعات، مقيد بنقابة محامي القاهرة.") }
+  var lawyerOfficeAddressManually by remember { mutableStateOf("15 شارع شريف، وسط البلد، عمارة التأمين، الدور الرابع، مكتب 42") }
+  var lawyerLatitude by remember { mutableStateOf<Double?>(30.0444) }
+  var lawyerLongitude by remember { mutableStateOf<Double?>(31.2357) }
+  var lawyerLocationCaptured by remember { mutableStateOf(true) }
+  var lawyerLocationAddressDescription by remember { mutableStateOf("ميدان التحرير / قصر النيل، وسط القاهرة (30.0444, 31.2357)") }
   var lawyerPhone by remember { mutableStateOf("01198765432") }
   var lawyerEmail by remember { mutableStateOf("sameh.askalani@law.eg") }
   var lawyerFirmName by remember { mutableStateOf("مجموعة العسقلاني للمحاماة والاستشارات") }
@@ -1176,16 +1188,162 @@ fun AuthScreen(
                     }
                   }
 
-                  OutlinedTextField(
-                    value = lawyerFullName,
-                    onValueChange = { lawyerFullName = it },
-                    label = { Text("الاسم الرباعي الرسمي (كما في كارنيه النقابة والبطاقة)") },
-                    leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = EmeraldSuccess) },
+                  // Lawyer Title Dropdown + Full Name in a Row
+                  Row(
                     modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                  ) {
+                    var titleExpanded by remember { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(
+                      expanded = titleExpanded,
+                      onExpandedChange = { titleExpanded = !titleExpanded },
+                      modifier = Modifier.weight(0.9f)
+                    ) {
+                      OutlinedTextField(
+                        value = lawyerTitle.labelAr,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("اللقب المهني") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = titleExpanded) },
+                        modifier = Modifier.menuAnchor().fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = maitreTextFieldColors()
+                      )
+                      ExposedDropdownMenu(
+                        expanded = titleExpanded,
+                        onDismissRequest = { titleExpanded = false }
+                      ) {
+                        LawyerTitle.values().forEach { titleOption ->
+                          DropdownMenuItem(
+                            text = { Text(titleOption.labelAr, fontWeight = FontWeight.Bold, fontSize = 13.sp) },
+                            onClick = {
+                              lawyerTitle = titleOption
+                              titleExpanded = false
+                            }
+                          )
+                        }
+                      }
+                    }
+
+                    OutlinedTextField(
+                      value = lawyerFullName,
+                      onValueChange = { lawyerFullName = it },
+                      label = { Text("الاسم الرسمي (بدون اللقب)") },
+                      placeholder = { Text("مثال: سامح محمد العسقلاني") },
+                      leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = EmeraldSuccess) },
+                      modifier = Modifier.weight(1.3f),
+                      shape = RoundedCornerShape(10.dp),
+                      singleLine = true,
+                      colors = maitreTextFieldColors()
+                    )
+                  }
+
+                  // Bio (نبذة عن المحامي)
+                  OutlinedTextField(
+                    value = lawyerBio,
+                    onValueChange = { lawyerBio = it },
+                    label = { Text("نبذة مهنية عن المحامي وسنوات الخبرة *") },
+                    placeholder = { Text("نبذة مختصرة تظهر للعملاء عن خبرتك القضائية وأبرز تخصصاتك...") },
+                    leadingIcon = { Icon(Icons.Default.Description, contentDescription = null, tint = GoldDark) },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3,
                     shape = RoundedCornerShape(10.dp),
-                    singleLine = true,
                     colors = maitreTextFieldColors()
                   )
+
+                  // Manual Office Address (تحديد عنوان المكتب يدوياً)
+                  OutlinedTextField(
+                    value = lawyerOfficeAddressManually,
+                    onValueChange = { lawyerOfficeAddressManually = it },
+                    label = { Text("عنوان المكتب بالتفصيل يدوياً *") },
+                    placeholder = { Text("مثال: 15 شارع شريف، وسط البلد، عمارة التأمين، الدور 4") },
+                    leadingIcon = { Icon(Icons.Default.Place, contentDescription = null, tint = CrimsonError) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = maitreTextFieldColors()
+                  )
+
+                  // GPS / Location Picker Box (أخذ لوكيشن للموقع)
+                  Surface(
+                    color = CreamSurfaceVariant,
+                    shape = RoundedCornerShape(10.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, if (lawyerLocationCaptured) EmeraldSuccess else GoldSecondary),
+                    modifier = Modifier.fillMaxWidth()
+                  ) {
+                    Column(
+                      modifier = Modifier.padding(12.dp),
+                      verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                      Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                      ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                          Icon(
+                            Icons.Default.MyLocation,
+                            contentDescription = null,
+                            tint = if (lawyerLocationCaptured) EmeraldSuccess else GoldDark,
+                            modifier = Modifier.size(18.dp)
+                          )
+                          Text(
+                            text = "الموقع الجغرافي للمكتب (GPS Location):",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = NavyPrimary
+                          )
+                        }
+                        Surface(
+                          color = if (lawyerLocationCaptured) EmeraldContainer else GoldContainer,
+                          shape = RoundedCornerShape(6.dp)
+                        ) {
+                          Text(
+                            text = if (lawyerLocationCaptured) "تم التقاط الإحداثيات ✓" else "لم يحدد بعد",
+                            color = if (lawyerLocationCaptured) EmeraldSuccess else GoldDark,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                          )
+                        }
+                      }
+
+                      Text(
+                        text = if (lawyerLocationCaptured) {
+                          "📍 الإحداثيات المسجلة: (${String.format(java.util.Locale.US, "%.4f", lawyerLatitude ?: 30.0444)}, ${String.format(java.util.Locale.US, "%.4f", lawyerLongitude ?: 31.2357)})\n$lawyerLocationAddressDescription"
+                        } else {
+                          "اضغط لالتقاط موقع المكتب بدقة عبر GPS لتسهيل وصول الموكل بعد التعاقد."
+                        },
+                        fontSize = 10.5.sp,
+                        color = TextSecondary,
+                        lineHeight = 15.sp
+                      )
+
+                      Button(
+                        onClick = {
+                          // Simulate GPS lock to lawyer's current office location in Egypt
+                          lawyerLatitude = 30.0444
+                          lawyerLongitude = 31.2357
+                          lawyerLocationCaptured = true
+                          lawyerLocationAddressDescription = "وسط القاهرة - قصر النيل / شارع شريف (تم التحديد بدقة GPS)"
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                          containerColor = if (lawyerLocationCaptured) EmeraldSuccess else NavyPrimary,
+                          contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                      ) {
+                        Icon(Icons.Default.GpsFixed, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                          text = if (lawyerLocationCaptured) "إعادة التقاط موقع المكتب الحالي (GPS)" else "أخذ لوكيشن للموقع الآن (GPS)",
+                          fontSize = 11.5.sp,
+                          fontWeight = FontWeight.Bold
+                        )
+                      }
+                    }
+                  }
 
                   OutlinedTextField(
                     value = lawyerFirmName,
@@ -2320,7 +2478,12 @@ fun AuthScreen(
                         desiredDegreesList,
                         selectedGovsList,
                         selectedCourtsList,
-                        selectedDistrictsList
+                        selectedDistrictsList,
+                        lawyerTitle,
+                        lawyerBio,
+                        lawyerOfficeAddressManually,
+                        lawyerLatitude,
+                        lawyerLongitude
                       )
                       onRegisterSuccess(
                         lawyerFullName,
@@ -2351,54 +2514,6 @@ fun AuthScreen(
           formErrorMessage?.let { err ->
             Surface(color = CrimsonContainer, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
               Text(err, color = CrimsonError, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(8.dp))
-            }
-          }
-        }
-      }
-
-      Spacer(modifier = Modifier.height(14.dp))
-
-      // Quick Demo Switcher Cards for Regular Users (Client / Lawyer)
-      Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = NavySurface),
-        border = androidx.compose.foundation.BorderStroke(1.dp, GoldSecondary.copy(alpha = 0.3f))
-      ) {
-        Column(
-          modifier = Modifier.padding(14.dp),
-          horizontalAlignment = Alignment.CenterHorizontally,
-          verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-          Text("تجربة سريعة للأنظمة (جمهورية مصر العربية):", fontSize = 11.5.sp, color = GoldSecondary, fontWeight = FontWeight.Bold)
-          Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-          ) {
-            // Client
-            Button(
-              onClick = { onLoginSuccess("01012345678", UserRole.CLIENT) },
-              modifier = Modifier.weight(1f),
-              colors = ButtonDefaults.buttonColors(containerColor = GoldDark),
-              shape = RoundedCornerShape(10.dp),
-              contentPadding = PaddingValues(vertical = 8.dp, horizontal = 6.dp)
-            ) {
-              Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color.White)
-              Spacer(modifier = Modifier.width(4.dp))
-              Text("دخول كعميل / موكل", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
-            }
-
-            // Lawyer
-            Button(
-              onClick = { onLoginSuccess("01198765432", UserRole.LAWYER) },
-              modifier = Modifier.weight(1f),
-              colors = ButtonDefaults.buttonColors(containerColor = EmeraldSuccess),
-              shape = RoundedCornerShape(10.dp),
-              contentPadding = PaddingValues(vertical = 8.dp, horizontal = 6.dp)
-            ) {
-              Icon(Icons.Default.Gavel, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color.White)
-              Spacer(modifier = Modifier.width(4.dp))
-              Text("دخول كمحامٍ مقيد", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
             }
           }
         }

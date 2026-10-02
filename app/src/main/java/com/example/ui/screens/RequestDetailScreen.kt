@@ -26,6 +26,13 @@ import com.example.model.*
 import com.example.data.MaitreRepository
 import com.example.ui.components.EscrowStatusBadge
 import com.example.ui.components.StatusBadge
+import com.example.ui.components.LawyerMeetingQrCard
+import com.example.ui.components.ClientStartWorkCameraBanner
+import com.example.ui.components.MeetingQrScannerDialog
+import com.example.ui.components.DisbursementSection
+import com.example.ui.components.RequestDisbursementDialog
+import com.example.ui.components.ModifyDisbursementDialog
+import com.example.ui.components.RejectDisbursementDialog
 import com.example.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -35,7 +42,9 @@ fun RequestDetailScreen(
   bids: List<Bid>,
   escrow: EscrowTransaction?,
   currentUser: UserProfile,
-  platformFeePercentage: Double = 10.0,
+  clientFeePercentage: Double = 5.0,
+  lawyerFeePercentage: Double = 5.0,
+  platformFeePercentage: Double = clientFeePercentage + lawyerFeePercentage,
   onBackClick: () -> Unit,
   onAcceptBid: (bidId: String, paymentMethod: String) -> Unit,
   onSubmitBid: (lawyerFee: Double, legalExpenses: Double, days: Int, note: String) -> Unit,
@@ -56,6 +65,14 @@ fun RequestDetailScreen(
 
   var showReleaseConfirmDialog by remember { mutableStateOf(false) }
   var showRatingDialog by remember { mutableStateOf(false) }
+
+  var showMeetingScannerDialog by remember { mutableStateOf(false) }
+  var showDisbursementDialog by remember { mutableStateOf(false) }
+  var modifyingDisbursement by remember { mutableStateOf<DisbursementRequest?>(null) }
+  var rejectingDisbursement by remember { mutableStateOf<DisbursementRequest?>(null) }
+
+  val allDisbursements by MaitreRepository.disbursementRequests.collectAsState()
+  val caseDisbursements = allDisbursements.filter { it.requestId == request.id }
 
   val lawyersList by MaitreRepository.lawyers.collectAsState()
   val reviewsList by MaitreRepository.reviews.collectAsState()
@@ -355,6 +372,142 @@ fun RequestDetailScreen(
         }
       }
 
+      // 2.7 Meeting Confirmation via QR & Start Work Camera (Requirement #2)
+      if (request.status == RequestStatus.IN_PROGRESS || request.status == RequestStatus.COMPLETED || request.acceptedBidId != null) {
+        // بطاقة إظهار بيانات المحامي الكاملة (الاسم الكامل، العنوان، الهاتف، الموقع الجغرافي) عند الاتفاق
+        val acceptedBid = bids.find { it.id == request.acceptedBidId }
+        val assignedLawyer = lawyersList.find { it.id == (acceptedBid?.lawyerId ?: "") }
+        if (acceptedBid != null) {
+          item {
+            Surface(
+              color = EmeraldContainer.copy(alpha = 0.35f),
+              shape = RoundedCornerShape(16.dp),
+              border = androidx.compose.foundation.BorderStroke(1.5.dp, EmeraldSuccess),
+              modifier = Modifier.fillMaxWidth()
+            ) {
+              Column(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+              ) {
+                Row(
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.SpaceBetween,
+                  modifier = Modifier.fillMaxWidth()
+                ) {
+                  Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = EmeraldSuccess)
+                    Text(
+                      text = "بيانات المحامي الموكل (تم التعاقد والاتفاق ✓)",
+                      fontWeight = FontWeight.Bold,
+                      fontSize = 13.5.sp,
+                      color = EmeraldSuccess
+                    )
+                  }
+                  Surface(color = EmeraldSuccess, shape = RoundedCornerShape(6.dp)) {
+                    Text(
+                      text = "متاح للتواصل",
+                      color = Color.White,
+                      fontSize = 10.sp,
+                      fontWeight = FontWeight.Bold,
+                      modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                  }
+                }
+
+                Divider(color = EmeraldSuccess.copy(alpha = 0.25f))
+
+                // 1. الاسم بالكامل
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                  Icon(Icons.Default.Person, contentDescription = null, tint = NavyPrimary, modifier = Modifier.size(18.dp))
+                  Column {
+                    Text("الاسم الكامل للمحامي:", fontSize = 10.sp, color = TextSecondary)
+                    Text(
+                      text = assignedLawyer?.getFullDisplayName() ?: acceptedBid.getFullDisplayName(),
+                      fontWeight = FontWeight.Bold,
+                      fontSize = 14.sp,
+                      color = TextPrimary
+                    )
+                  }
+                }
+
+                // 2. الهاتف والواتساب
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                  Icon(Icons.Default.Phone, contentDescription = null, tint = NavyPrimary, modifier = Modifier.size(18.dp))
+                  Column {
+                    Text("رقم الهاتف المباشر والتواصل المهني:", fontSize = 10.sp, color = TextSecondary)
+                    Text(
+                      text = assignedLawyer?.phone ?: "+20 111 987 6543",
+                      fontWeight = FontWeight.Bold,
+                      fontSize = 13.sp,
+                      color = TextPrimary
+                    )
+                  }
+                }
+
+                // 3. عنوان المكتب يدوياً
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                  Icon(Icons.Default.LocationOn, contentDescription = null, tint = CrimsonError, modifier = Modifier.size(18.dp))
+                  Column {
+                    Text("عنوان المكتب المعتمد:", fontSize = 10.sp, color = TextSecondary)
+                    Text(
+                      text = assignedLawyer?.officeAddressManually ?: "القاهرة - مصر الجديدة - شارع الأهرام - برج مِتر القانوني",
+                      fontWeight = FontWeight.Medium,
+                      fontSize = 12.sp,
+                      color = TextPrimary
+                    )
+                  }
+                }
+
+                // 4. الموقع الجغرافي (GPS Location)
+                val lat = assignedLawyer?.officeLatitude ?: 30.0911
+                val lng = assignedLawyer?.officeLongitude ?: 31.3253
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                  Icon(Icons.Default.Place, contentDescription = null, tint = GoldDark, modifier = Modifier.size(18.dp))
+                  Column {
+                    Text("الموقع الجغرافي للمكتب (الإحداثيات):", fontSize = 10.sp, color = TextSecondary)
+                    Text(
+                      text = "خط العرض: ${String.format(java.util.Locale.US, "%.4f", lat)} • خط الطول: ${String.format(java.util.Locale.US, "%.4f", lng)}",
+                      fontWeight = FontWeight.SemiBold,
+                      fontSize = 11.sp,
+                      color = NavyPrimary
+                    )
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        item {
+          if (currentUser.role == UserRole.LAWYER) {
+            LawyerMeetingQrCard(request = request)
+          } else if (currentUser.role == UserRole.CLIENT) {
+            ClientStartWorkCameraBanner(
+              request = request,
+              onOpenScanner = { showMeetingScannerDialog = true }
+            )
+          }
+        }
+      }
+
+      // 2.8 Partial Payment & Judicial Expenses (Requirement #3)
+      if (request.status == RequestStatus.IN_PROGRESS || request.status == RequestStatus.COMPLETED) {
+        item {
+          DisbursementSection(
+            disbursements = caseDisbursements,
+            currentUser = currentUser,
+            isRequestActive = request.status == RequestStatus.IN_PROGRESS,
+            onRequestDisbursementClick = { showDisbursementDialog = true },
+            onAcceptDisbursement = { disbId -> MaitreRepository.acceptDisbursement(disbId) },
+            onModifyDisbursementClick = { disb -> modifyingDisbursement = disb },
+            onRejectDisbursementClick = { disb -> rejectingDisbursement = disb },
+            onLawyerAcceptCounter = { disbId -> MaitreRepository.lawyerAcceptCounterDisbursement(disbId) }
+          )
+        }
+      }
+
       // 3. Lawyer Submit Bid Action (if in Lawyer mode and request is OPEN)
       if (currentUser.role == UserRole.LAWYER && request.status == RequestStatus.OPEN) {
         item {
@@ -393,7 +546,10 @@ fun RequestDetailScreen(
         }
       }
 
-      // 4. Bids List Section
+      // 4. Bids List Section (Requirement #1: Hide other lawyers' bids in lawyer screen)
+      val isLawyer = currentUser.role == UserRole.LAWYER
+      val lawyerOwnBids = if (isLawyer) bids.filter { it.lawyerId == currentUser.id || it.lawyerName == currentUser.name } else bids
+
       item {
         Row(
           modifier = Modifier.fillMaxWidth(),
@@ -401,13 +557,26 @@ fun RequestDetailScreen(
           verticalAlignment = Alignment.CenterVertically
         ) {
           Text(
-            text = "عروض المحامين المقدمة (${bids.size})",
-            color = TextPrimary,
+            text = if (isLawyer) "عرضك القانوني المقدم" else "عروض المحامين المقدمة (${bids.size})",
+            color = MaterialTheme.adaptiveTextPrimary,
             fontSize = 16.sp,
             fontWeight = FontWeight.Bold
           )
 
-          if (request.status == RequestStatus.OPEN) {
+          if (isLawyer) {
+            Surface(
+              color = GoldContainer,
+              shape = RoundedCornerShape(8.dp)
+            ) {
+              Text(
+                text = "🔒 سرية المنافسة مفعلة",
+                color = GoldDark,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+              )
+            }
+          } else if (request.status == RequestStatus.OPEN) {
             Surface(
               color = GoldContainer,
               shape = RoundedCornerShape(8.dp)
@@ -424,38 +593,126 @@ fun RequestDetailScreen(
         }
       }
 
-      if (bids.isEmpty()) {
-        item {
-          Surface(
-            color = CreamSurface,
-            shape = RoundedCornerShape(12.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, BorderSubtle),
-            modifier = Modifier.fillMaxWidth()
-          ) {
-            Column(
-              modifier = Modifier
-                .fillMaxWidth()
-                .padding(24.dp),
-              horizontalAlignment = Alignment.CenterHorizontally,
-              verticalArrangement = Arrangement.spacedBy(8.dp)
+      if (isLawyer) {
+        // Lawyer view: ONLY show own bid, never other lawyers' bids
+        if (lawyerOwnBids.isEmpty()) {
+          item {
+            Surface(
+              color = CreamSurfaceVariant,
+              shape = RoundedCornerShape(12.dp),
+              border = androidx.compose.foundation.BorderStroke(1.dp, BorderSubtle),
+              modifier = Modifier.fillMaxWidth()
             ) {
-              Icon(Icons.Outlined.Gavel, contentDescription = null, tint = TextMuted, modifier = Modifier.size(40.dp))
-              Text("لم يتم تقديم أي عروض بعد", color = TextSecondary, fontSize = 13.sp)
-              Text("سيتم إشعارك فور قيام أحد المحامين المعتمدين بتقديم عرضه.", color = TextMuted, fontSize = 11.sp)
+              Column(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+              ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                  Icon(Icons.Default.Lock, contentDescription = null, tint = GoldDark, modifier = Modifier.size(20.dp))
+                  Text(
+                    text = "سرية العروض بين المحامين",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    color = NavyDark
+                  )
+                }
+                Text(
+                  text = "احتراماً لأخلاقيات مهنة المحاماة وقواعد المنافسة الشريفة، عروض الزملاء الآخرين سرية بالكامل ومحجوبة عن شاشات المحامين المنافسين.",
+                  fontSize = 12.sp,
+                  color = TextPrimary,
+                  lineHeight = 16.sp
+                )
+                Text(
+                  text = "• إجمالي العروض المستلمة من الموكل حتى الآن: ${bids.size} عروض (بدون كشف تفاصيل المنافسين).",
+                  fontSize = 11.sp,
+                  fontWeight = FontWeight.SemiBold,
+                  color = TextSecondary
+                )
+                if (request.status == RequestStatus.OPEN) {
+                  Spacer(modifier = Modifier.height(4.dp))
+                  Button(
+                    onClick = { showLawyerBidDialog = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                  ) {
+                    Icon(Icons.Default.AddCircleOutline, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("تقديم عرضك القانوني لهذه القضية", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                  }
+                }
+              }
+            }
+          }
+        } else {
+          // Lawyer has submitted a bid: display only their bid
+          items(lawyerOwnBids) { bid ->
+            BidCardItem(
+              bid = bid,
+              isRequestOpen = request.status == RequestStatus.OPEN,
+              isClient = false,
+              onAccept = {}
+            )
+          }
+
+          item {
+            Surface(
+              color = NavyDark.copy(alpha = 0.05f),
+              shape = RoundedCornerShape(8.dp),
+              modifier = Modifier.fillMaxWidth()
+            ) {
+              Row(
+                modifier = Modifier.padding(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+              ) {
+                Icon(Icons.Default.Security, contentDescription = null, tint = GoldDark, modifier = Modifier.size(16.dp))
+                Text(
+                  text = "عروض الزملاء الآخرين محجوبة وسرية بالكامل طبقاً للائحة الخصوصية والمنافسة المهنية.",
+                  fontSize = 11.sp,
+                  color = TextSecondary
+                )
+              }
             }
           }
         }
       } else {
-        items(bids) { bid ->
-          BidCardItem(
-            bid = bid,
-            isRequestOpen = request.status == RequestStatus.OPEN,
-            isClient = currentUser.role == UserRole.CLIENT,
-            onAccept = {
-              selectedBidToAccept = bid
-              showAcceptPaymentDialog = true
+        // Client / Admin view: show all bids received
+        if (bids.isEmpty()) {
+          item {
+            Surface(
+              color = CreamSurface,
+              shape = RoundedCornerShape(12.dp),
+              border = androidx.compose.foundation.BorderStroke(1.dp, BorderSubtle),
+              modifier = Modifier.fillMaxWidth()
+            ) {
+              Column(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+              ) {
+                Icon(Icons.Outlined.Gavel, contentDescription = null, tint = TextMuted, modifier = Modifier.size(40.dp))
+                Text("لم يتم تقديم أي عروض بعد", color = TextSecondary, fontSize = 13.sp)
+                Text("سيتم إشعارك فور قيام أحد المحامين المعتمدين بتقديم عرضه.", color = TextMuted, fontSize = 11.sp)
+              }
             }
-          )
+          }
+        } else {
+          items(bids) { bid ->
+            BidCardItem(
+              bid = bid,
+              isRequestOpen = request.status == RequestStatus.OPEN,
+              isClient = currentUser.role == UserRole.CLIENT,
+              onAccept = {
+                selectedBidToAccept = bid
+                showAcceptPaymentDialog = true
+              }
+            )
+          }
         }
       }
     }
@@ -466,8 +723,8 @@ fun RequestDetailScreen(
     val feeVal = lawyerProposedFee.toDoubleOrNull() ?: 0.0
     val expVal = lawyerProposedExpenses.toDoubleOrNull() ?: 0.0
     val baseTotal = feeVal + expVal
-    val platformFeeVal = baseTotal * (platformFeePercentage / 100.0)
-    val grandTotal = baseTotal + platformFeeVal
+    val clientFeeVal = if (clientFeePercentage > 0.0) baseTotal * (clientFeePercentage / 100.0) else 0.0
+    val grandTotal = baseTotal + clientFeeVal
 
     AlertDialog(
       onDismissRequest = { showLawyerBidDialog = false },
@@ -583,22 +840,20 @@ fun RequestDetailScreen(
             modifier = Modifier.fillMaxWidth()
           ) {
             Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-              Text("📊 تفصيل الحساب المالي للعرض:", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = GoldOnContainer)
+              Text("📊 تفصيل العرض المالي:", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = GoldOnContainer)
               Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("أتعاب المحامي:", fontSize = 11.sp, color = TextPrimary)
                 Text("${feeVal.toInt()} ج.م", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
               }
-              Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("المصاريف القضائية المقدرة:", fontSize = 11.sp, color = TextPrimary)
-                Text("${expVal.toInt()} ج.م", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-              }
-              Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("نسبة المنصة المقررة من الإدارة (${platformFeePercentage.toInt()}%):", fontSize = 10.sp, color = TextMuted)
-                Text("${platformFeeVal.toInt()} ج.م", fontSize = 10.sp, color = TextMuted)
+              if (expVal > 0) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                  Text("المصاريف القضائية المقدرة:", fontSize = 11.sp, color = TextPrimary)
+                  Text("${expVal.toInt()} ج.م", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                }
               }
               Divider(color = GoldSecondary.copy(alpha = 0.5f), thickness = 0.8.dp)
               Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("إجمالي المبلغ المعروض للمستخدم النهائي:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = NavyPrimary)
+                Text("إجمالي المبلغ المعروض للعميل:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = NavyPrimary)
                 Text("${grandTotal.toInt()} ج.م", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NavyPrimary)
               }
             }
@@ -666,10 +921,6 @@ fun RequestDetailScreen(
                   Text("المصاريف القانونية والقضائية المقدرة:", fontSize = 11.sp, color = TextSecondary)
                   Text("${bid.legalExpenses.toInt()} ج.م", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
-              }
-              Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("رسم خدمة المنصة وإدارة القضية (${bid.platformFeePercent.toInt()}%):", fontSize = 11.sp, color = TextMuted)
-                Text("${bid.platformFeeAmount.toInt()} ج.م", fontSize = 11.sp, color = TextMuted)
               }
               Divider(color = BorderSubtle)
               Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -872,6 +1123,65 @@ fun RequestDetailScreen(
       }
     )
   }
+
+  // DIALOG: Meeting QR Scanner for Client (Requirement #2)
+  if (showMeetingScannerDialog) {
+    MeetingQrScannerDialog(
+      request = request,
+      onDismiss = { showMeetingScannerDialog = false },
+      onConfirmMeeting = {
+        MaitreRepository.confirmMeetingWithQr(request.id)
+      }
+    )
+  }
+
+  // DIALOG: Lawyer Request Disbursement / Judicial Expenses (Requirement #3)
+  if (showDisbursementDialog) {
+    RequestDisbursementDialog(
+      onDismiss = { showDisbursementDialog = false },
+      onSubmit = { type, amount, reason, receiptRef ->
+        MaitreRepository.requestDisbursement(
+          requestId = request.id,
+          type = type,
+          amount = amount,
+          reason = reason,
+          receiptOrRef = receiptRef
+        )
+        showDisbursementDialog = false
+      }
+    )
+  }
+
+  // DIALOG: Client Modify Disbursement (Requirement #3)
+  modifyingDisbursement?.let { item ->
+    ModifyDisbursementDialog(
+      item = item,
+      onDismiss = { modifyingDisbursement = null },
+      onSubmitModification = { counterAmount, note ->
+        MaitreRepository.modifyDisbursement(
+          disbursementId = item.id,
+          counterAmount = counterAmount,
+          clientNote = note
+        )
+        modifyingDisbursement = null
+      }
+    )
+  }
+
+  // DIALOG: Client Reject Disbursement (Requirement #3)
+  rejectingDisbursement?.let { item ->
+    RejectDisbursementDialog(
+      item = item,
+      onDismiss = { rejectingDisbursement = null },
+      onSubmitRejection = { reason ->
+        MaitreRepository.rejectDisbursement(
+          disbursementId = item.id,
+          reason = reason
+        )
+        rejectingDisbursement = null
+      }
+    )
+  }
 }
 
 @Composable
@@ -918,7 +1228,12 @@ fun BidCardItem(
 
           Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
-              Text(text = bid.lawyerName, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextPrimary)
+              val displayName = if (!isClient || bid.status == BidStatus.ACCEPTED) {
+                bid.getFullDisplayName()
+              } else {
+                bid.getMaskedDisplayName()
+              }
+              Text(text = displayName, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextPrimary)
               Spacer(modifier = Modifier.width(4.dp))
               Icon(Icons.Default.Verified, contentDescription = "مرخص", tint = EmeraldSuccess, modifier = Modifier.size(14.dp))
             }
@@ -1006,11 +1321,6 @@ fun BidCardItem(
               Text("المصاريف القضائية المقدرة:", fontSize = 11.sp, color = TextSecondary)
               Text("${bid.legalExpenses.toInt()} ج.م", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
             }
-          }
-
-          Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("رسم خدمة المنصة (${bid.platformFeePercent.toInt()}%):", fontSize = 10.sp, color = TextMuted)
-            Text("${bid.platformFeeAmount.toInt()} ج.م", fontSize = 10.sp, color = TextMuted)
           }
 
           Divider(color = BorderSubtle, thickness = 0.6.dp)

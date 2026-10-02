@@ -317,10 +317,10 @@ fun MaitreBottomNavigation(
     )
 
     NavigationBarItem(
-      selected = currentScreen == "lawyers",
-      onClick = { onNavigate("lawyers") },
-      icon = { Icon(Icons.Default.Gavel, contentDescription = "المحامون") },
-      label = { Text(if (userRole == UserRole.LAWYER) "الزملاء المعتمدين" else "المحامون", fontSize = 11.sp) },
+      selected = currentScreen == "tracker",
+      onClick = { onNavigate("tracker") },
+      icon = { Icon(Icons.Default.Timeline, contentDescription = "تتبع القضايا") },
+      label = { Text("تتبع القضايا", fontSize = 11.sp) },
       colors = NavigationBarItemDefaults.colors(
         selectedIconColor = NavyDark,
         selectedTextColor = GoldLight,
@@ -343,6 +343,36 @@ fun MaitreBottomNavigation(
         unselectedTextColor = Color.White.copy(alpha = 0.7f)
       )
     )
+
+    if (userRole == UserRole.LAWYER) {
+      NavigationBarItem(
+        selected = currentScreen == "lawyer_requests",
+        onClick = { onNavigate("lawyer_requests") },
+        icon = { Icon(Icons.Default.Bolt, contentDescription = "طلبات") },
+        label = { Text("طلبات", fontSize = 11.sp) },
+        colors = NavigationBarItemDefaults.colors(
+          selectedIconColor = NavyDark,
+          selectedTextColor = GoldLight,
+          indicatorColor = GoldSecondary,
+          unselectedIconColor = Color.White.copy(alpha = 0.7f),
+          unselectedTextColor = Color.White.copy(alpha = 0.7f)
+        )
+      )
+    } else {
+      NavigationBarItem(
+        selected = currentScreen == "lawyers",
+        onClick = { onNavigate("lawyers") },
+        icon = { Icon(Icons.Default.Gavel, contentDescription = "المحامون") },
+        label = { Text("المحامون", fontSize = 11.sp) },
+        colors = NavigationBarItemDefaults.colors(
+          selectedIconColor = NavyDark,
+          selectedTextColor = GoldLight,
+          indicatorColor = GoldSecondary,
+          unselectedIconColor = Color.White.copy(alpha = 0.7f),
+          unselectedTextColor = Color.White.copy(alpha = 0.7f)
+        )
+      )
+    }
 
     NavigationBarItem(
       selected = currentScreen == "profile",

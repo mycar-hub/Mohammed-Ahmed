@@ -645,12 +645,6 @@ fun EscrowTransactionCard(
             Text("أتعاب ومصاريف المحاماة المحتجزة:", fontSize = 11.sp, color = TextSecondary)
             Text("${transaction.lawyerAmount.toInt()} ج.م", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
           }
-          if (transaction.platformFee > 0) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-              Text("رسم حماية الضمان وإدارة القضية:", fontSize = 10.sp, color = TextMuted)
-              Text("${transaction.platformFee.toInt()} ج.م", fontSize = 10.sp, color = TextMuted)
-            }
-          }
           Divider(color = BorderSubtle, thickness = 0.5.dp)
           Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("إجمالي المبلغ المودع والمضمون:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NavyPrimary)
@@ -986,10 +980,6 @@ fun FundEscrowModal(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
               Text("المصاريف القضائية المقدرة:", fontSize = 11.sp)
               Text("${expVal.toInt()} ج.م", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            }
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-              Text("رسم خدمة وحماية الضمان (10%):", fontSize = 10.sp, color = TextMuted)
-              Text("${platFeeVal.toInt()} ج.م", fontSize = 10.sp, color = TextMuted)
             }
             Divider(color = GoldSecondary, thickness = 0.5.dp)
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

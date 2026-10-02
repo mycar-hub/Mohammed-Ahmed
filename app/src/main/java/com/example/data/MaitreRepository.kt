@@ -25,16 +25,41 @@ object MaitreRepository {
   private val _appPreferences = MutableStateFlow(AppPreferences())
   val appPreferences: StateFlow<AppPreferences> = _appPreferences.asStateFlow()
 
-  // نسبة المنصة المحتسبة على إجمالي الأتعاب والمصاريف (قابلة للتعديل من الإدارة)
+  // نسبتا المنصة: الأولى من العميل، والثانية من المحامي (قابلتان للتعديل أو التخفيض أو الإيقاف من المشرف)
+  private val _clientPlatformFeePercentage = MutableStateFlow(5.0)
+  val clientPlatformFeePercentage: StateFlow<Double> = _clientPlatformFeePercentage.asStateFlow()
+
+  private val _lawyerPlatformFeePercentage = MutableStateFlow(5.0)
+  val lawyerPlatformFeePercentage: StateFlow<Double> = _lawyerPlatformFeePercentage.asStateFlow()
+
+  // توافقية عكسية
   private val _platformFeePercentage = MutableStateFlow(10.0)
   val platformFeePercentage: StateFlow<Double> = _platformFeePercentage.asStateFlow()
 
+  fun updateClientPlatformFeePercentage(percentage: Double) {
+    _clientPlatformFeePercentage.value = percentage.coerceAtLeast(0.0)
+    _platformFeePercentage.value = _clientPlatformFeePercentage.value + _lawyerPlatformFeePercentage.value
+  }
+
+  fun updateLawyerPlatformFeePercentage(percentage: Double) {
+    _lawyerPlatformFeePercentage.value = percentage.coerceAtLeast(0.0)
+    _platformFeePercentage.value = _clientPlatformFeePercentage.value + _lawyerPlatformFeePercentage.value
+  }
+
+  fun updateDualPlatformFees(clientFee: Double, lawyerFee: Double) {
+    _clientPlatformFeePercentage.value = clientFee.coerceAtLeast(0.0)
+    _lawyerPlatformFeePercentage.value = lawyerFee.coerceAtLeast(0.0)
+    _platformFeePercentage.value = _clientPlatformFeePercentage.value + _lawyerPlatformFeePercentage.value
+  }
+
   fun setPlatformFeePercentage(percentage: Double) {
     _platformFeePercentage.value = percentage
+    _clientPlatformFeePercentage.value = (percentage / 2.0).coerceAtLeast(0.0)
+    _lawyerPlatformFeePercentage.value = (percentage / 2.0).coerceAtLeast(0.0)
   }
 
   fun updatePlatformFeePercentage(percentage: Double) {
-    _platformFeePercentage.value = percentage
+    setPlatformFeePercentage(percentage)
   }
 
   private val _currentUser = MutableStateFlow(
@@ -84,6 +109,10 @@ object MaitreRepository {
 
   private val _securityRiskEvents = MutableStateFlow<List<SecurityRiskEvent>>(emptyList())
   val securityRiskEvents: StateFlow<List<SecurityRiskEvent>> = _securityRiskEvents.asStateFlow()
+
+  // طلبات الدفعات والمصاريف القضائية أثناء تنفيذ القضايا
+  private val _disbursementRequests = MutableStateFlow<List<DisbursementRequest>>(emptyList())
+  val disbursementRequests: StateFlow<List<DisbursementRequest>> = _disbursementRequests.asStateFlow()
 
   private val _deposits = MutableStateFlow<List<DepositRecord>>(
     listOf(
@@ -316,6 +345,102 @@ object MaitreRepository {
   )
   val realtimeAuditLogs: StateFlow<List<RealtimeAuditLog>> = _realtimeAuditLogs.asStateFlow()
 
+  // Lawyer Availability Status (متاح / متوقف - مثل تطبيقات النقل الذكي)
+  private val _isLawyerAvailable = MutableStateFlow(true)
+  val isLawyerAvailable: StateFlow<Boolean> = _isLawyerAvailable.asStateFlow()
+
+  fun setLawyerAvailable(available: Boolean) {
+    _isLawyerAvailable.value = available
+    if (!available) {
+      _incomingDispatchRequest.value = null
+    }
+  }
+
+  fun toggleLawyerAvailability() {
+    setLawyerAvailable(!_isLawyerAvailable.value)
+  }
+
+  // Active incoming smart dispatch request (نافذة التنبيه المنبثقة لمدة 20 ثانية)
+  private val _incomingDispatchRequest = MutableStateFlow<ServiceRequest?>(null)
+  val incomingDispatchRequest: StateFlow<ServiceRequest?> = _incomingDispatchRequest.asStateFlow()
+
+  fun triggerIncomingDispatchRequest(request: ServiceRequest) {
+    if (_isLawyerAvailable.value && _currentUser.value.role == UserRole.LAWYER) {
+      if (_currentUser.value.isWithinLawyerJurisdiction(request.city, request.courtLocation)) {
+        _incomingDispatchRequest.value = request
+      }
+    }
+  }
+
+  fun dismissIncomingDispatchRequest() {
+    _incomingDispatchRequest.value = null
+  }
+
+  /**
+   * قبول فوري ومباشر للطلب من نافذة التنبيه الذكية
+   */
+  fun acceptIncomingDispatchRequest(requestId: String, lawyerFee: Double, note: String = "تم قبول الطلب ومباشرة الإجراءات فوراً عبر التنبيه الذكي"): Result<Bid> {
+    _incomingDispatchRequest.value = null
+    return addBid(
+      requestId = requestId,
+      lawyerFee = lawyerFee,
+      legalExpenses = 0.0,
+      proposedDays = 2,
+      proposalNote = note
+    )
+  }
+
+  /**
+   * محاكاة وصول طلب جديد في النطاق الجغرافي للمحامي لاختبار الـ Popup مع الـ Alarm لمدة 20 ثانية
+   */
+  fun simulateIncomingRequestForLawyer(): ServiceRequest {
+    val currentLawyer = _currentUser.value
+    val gov = currentLawyer.assignedGovernorate.ifBlank { "القاهرة" }
+    val district = currentLawyer.assignedDistrict.ifBlank { "مصر الجديدة" }
+    val court = currentLawyer.assignedCourtJurisdiction.ifBlank { "نيابة مصر الجديدة الجزئية • محكمة مصر الجديدة" }
+
+    val simulatedId = "req_live_${System.currentTimeMillis() % 10000}"
+    val sampleTitles = listOf(
+      "حضور فوري وتحقيق عاجل مع موكل أمام النيابة العامة",
+      "صياغة مذكرة دفاع عاجلة في جنحة شيك بدون رصيد",
+      "إجراءات مستعجلة لإثبات حالة ومعاينة شقة متنازع عليها",
+      "طلب تمثيل قانوني مستعجل أمام المحكمة الجزئية"
+    )
+    val chosenTitle = sampleTitles.random()
+    val budget = listOf(3500.0, 4500.0, 5000.0, 6500.0, 8000.0).random()
+
+    val newReq = ServiceRequest(
+      id = simulatedId,
+      title = chosenTitle,
+      category = RequestCategory.CRIMINAL_FINANCIAL,
+      description = "مطلوب بشكل عاجل انتقال وحضور محامٍ معتمد فورياً أمام النيابة العامة بمقر محكمة $gov دائرة $district للاطلاع على المحضر وإخلاء السبيل بضمان.",
+      city = gov,
+      budgetRange = "${budget.toInt()} ج.م",
+      budgetAmount = budget,
+      urgency = RequestUrgency.URGENT,
+      status = RequestStatus.OPEN,
+      clientId = "client_uber_sample",
+      clientName = "أ. حسام فوزي النجار",
+      createdAt = "الآن",
+      bidsCount = 0,
+      courtLocation = GeoLocation(
+        city = gov,
+        district = district,
+        courtJurisdiction = court,
+        latitude = currentLawyer.officeLatitude ?: 30.0911,
+        longitude = currentLawyer.officeLongitude ?: 31.3253,
+        locationPurpose = "مقر المحكمة ومكان الواقعة",
+        specificLandmark = "بالقرب من مجمع المحاكم الجزئية"
+      )
+    )
+
+    _requests.value = listOf(newReq) + _requests.value
+    if (_isLawyerAvailable.value && _currentUser.value.role == UserRole.LAWYER) {
+      _incomingDispatchRequest.value = newReq
+    }
+    return newReq
+  }
+
   init {
     seedInitialData()
   }
@@ -500,7 +625,10 @@ object MaitreRepository {
         acceptedBidId = "bid_201",
         createdAt = "15 سبتمبر 2026",
         bidsCount = 3,
-        courtLocation = GeoLocation("القاهرة", "التجمع الخامس", "محكمة القاهرة الاقتصادية", 30.0444, 31.2357)
+        courtLocation = GeoLocation("القاهرة", "التجمع الخامس", "محكمة القاهرة الاقتصادية", 30.0444, 31.2357),
+        isMeetingConfirmed = false,
+        meetingConfirmedAt = null,
+        meetingQrToken = "MTR-MEET-101-8492"
       ),
       ServiceRequest(
         id = "req_102",
@@ -552,10 +680,46 @@ object MaitreRepository {
         createdAt = "10 سبتمبر 2026",
         bidsCount = 5,
         courtLocation = GeoLocation("القاهرة", "مدينة نصر", "محكمة الأسرة بمدينة نصر", 30.0561, 31.3301),
-        appliedTemplateId = "template_elam_werasa"
+        appliedTemplateId = "template_elam_werasa",
+        isMeetingConfirmed = true,
+        meetingConfirmedAt = "10 سبتمبر 2026 - 11:30 ص",
+        meetingQrToken = "MTR-MEET-104-5102"
+      ),
+      ServiceRequest(
+        id = "req_105",
+        title = "نزاع على إخلال بتنفيذ عقد مقاولات وتشطيبات عقارية",
+        category = RequestCategory.REAL_ESTATE,
+        description = "نشأ خلاف قانوني بشأن عدم مطابقة المواصفات الهندسية وتأخير تسليم المشروع لأكثر من 4 أشهر، ومطلوب مباشرة دعوى تعويض وفسخ وإثبات حالة مستعجل.",
+        city = "الجيزة",
+        budgetRange = "6,000 - 12,000 ج.م",
+        budgetAmount = 8000.0,
+        urgency = RequestUrgency.URGENT,
+        status = RequestStatus.DISPUTED,
+        clientId = "user_client_1",
+        clientName = "م. شريف عبد الفتاح التميمي",
+        acceptedBidId = "bid_205",
+        createdAt = "05 سبتمبر 2026",
+        bidsCount = 4,
+        courtLocation = GeoLocation("الجيزة", "6 أكتوبر", "محكمة 6 أكتوبر الابتدائية", 29.9737, 30.9500)
       )
     )
     _requests.value = initialRequests
+
+    val initialDisbursements = listOf(
+      DisbursementRequest(
+        id = "disb_101_1",
+        requestId = "req_101",
+        lawyerId = "lawyer_1",
+        lawyerName = "المستشار د. أحمد عبد العال الشناوي",
+        type = DisbursementType.JUDICIAL_EXPENSES,
+        amount = 500.0,
+        reason = "رسوم توثيق عقود التأسيس بالغرفة التجارية وهيئة الاستثمار واستخراج شهادة عدم التباس",
+        receiptOrRef = "GAFI-REC-49102",
+        status = DisbursementStatus.PENDING,
+        createdAt = "اليوم 11:30 ص"
+      )
+    )
+    _disbursementRequests.value = initialDisbursements
 
     val initialBids = listOf(
       Bid(
@@ -570,7 +734,9 @@ object MaitreRepository {
         lawyerCasesCount = 48,
         lawyerFee = 7000.0,
         legalExpenses = 500.0,
-        platformFeePercent = 10.0,
+        clientFeePercent = 5.0,
+        lawyerFeePercent = 5.0,
+        platformFeePercent = 5.0,
         proposedDays = 4,
         proposalNote = "تحياتي، يشمل العرض صياغة عقد التأسيس ونظام الإدارة والحصص وبنود التخارج وحماية الملكية الفكرية مع جلستي مراجعة ومطابقة متطلبات هيئة الاستثمار.",
         status = BidStatus.ACCEPTED,
@@ -588,7 +754,9 @@ object MaitreRepository {
         lawyerCasesCount = 56,
         lawyerFee = 7800.0,
         legalExpenses = 700.0,
-        platformFeePercent = 10.0,
+        clientFeePercent = 5.0,
+        lawyerFeePercent = 5.0,
+        platformFeePercent = 5.0,
         proposedDays = 5,
         proposalNote = "أتشرف بتقديم العرض لصياغة اتفاقية الشركاء وعقد التأسيس وفق المعايير القانونية الدقيقة وحماية المؤسسين.",
         status = BidStatus.PENDING,
@@ -606,7 +774,9 @@ object MaitreRepository {
         lawyerCasesCount = 37,
         lawyerFee = 2500.0,
         legalExpenses = 500.0,
-        platformFeePercent = 10.0,
+        clientFeePercent = 5.0,
+        lawyerFeePercent = 5.0,
+        platformFeePercent = 5.0,
         proposedDays = 3,
         proposalNote = "سأقوم بإعداد صحيفة دعوى إثبات صحة التوقيع وإعلان المدعى عليه ومتابعة الجلسة واستلام الصيغة التنفيذية المعتمدة.",
         status = BidStatus.PENDING,
@@ -624,11 +794,33 @@ object MaitreRepository {
         lawyerCasesCount = 29,
         lawyerFee = 3000.0,
         legalExpenses = 500.0,
-        platformFeePercent = 10.0,
+        clientFeePercent = 5.0,
+        lawyerFeePercent = 5.0,
+        platformFeePercent = 5.0,
         proposedDays = 7,
         proposalNote = "إنجاز إجراءات قيد وضبط إعلام الوراثة وحضور جلسة الشهود واستخراج الصيغة الرسمية لحصر التركة.",
         status = BidStatus.ACCEPTED,
         createdAt = "10 سبتمبر 2026"
+      ),
+      Bid(
+        id = "bid_205",
+        requestId = "req_105",
+        lawyerId = "lawyer_3",
+        lawyerName = "المستشار حسام الدين مصطفى",
+        lawyerTitle = "محامٍ بالنقض ومستشار عقود الشركات",
+        lawyerDegree = LawyerBarDegree.CASSATION,
+        lawyerLicenseNumber = "قيد نقض: 441029",
+        lawyerRating = 4.95,
+        lawyerCasesCount = 56,
+        lawyerFee = 7500.0,
+        legalExpenses = 500.0,
+        clientFeePercent = 5.0,
+        lawyerFeePercent = 5.0,
+        platformFeePercent = 5.0,
+        proposedDays = 10,
+        proposalNote = "إقامة دعوى التعويض وندب خبير هندسي لإثبات حالة الأعمال الإنشائية ومحاسبة المقاول.",
+        status = BidStatus.ACCEPTED,
+        createdAt = "06 سبتمبر 2026"
       )
     )
     _bids.value = initialBids
@@ -656,6 +848,17 @@ object MaitreRepository {
         paymentMethod = "فودافون كاش",
         referenceNumber = "MTR-EGY-88401",
         date = "14 سبتمبر 2026"
+      ),
+      EscrowTransaction(
+        id = "tx_303",
+        requestId = "req_105",
+        totalAmount = 400.0,
+        lawyerAmount = 8000.0,
+        platformFee = 400.0,
+        status = EscrowStatus.FROZEN_FOR_DISPUTE,
+        paymentMethod = "إنستاباي InstaPay",
+        referenceNumber = "MTR-EGY-77319",
+        date = "08 سبتمبر 2026"
       )
     )
     _escrowTransactions.value = initialEscrows
@@ -767,6 +970,27 @@ object MaitreRepository {
         timestamp = "14 سبتمبر 2026 14:20"
       )
     )
+
+    _disputes.value = listOf(
+      Dispute(
+        id = "disp_101",
+        requestId = "req_105",
+        requestTitle = "نزاع على إخلال بتنفيذ عقد مقاولات وتشطيبات عقارية",
+        openedByRole = UserRole.CLIENT,
+        openedByName = "م. شريف عبد الفتاح التميمي",
+        reason = "تأخر غير مبرر في تسليم تقرير المعاينة الهندسية وإيداع صحيفة الدعوى بالمحكمة",
+        details = "تجاوز المحامي المدة المتفق عليها (10 أيام) دون إفادة الموكل برقم قيد الدعوى أو الجلسة المحددة بمحكمة 6 أكتوبر.",
+        status = DisputeStatus.UNDER_REVIEW,
+        adminNote = "تم تجميد الضمان وإحالة ملف النزاع للمستشار رئيس لجنة التحكيم لطلب إفادة رسمية من المحامي.",
+        createdAt = "08 سبتمبر 2026"
+      )
+    )
+  }
+
+  fun updateRequestStatus(requestId: String, newStatus: RequestStatus) {
+    _requests.value = _requests.value.map {
+      if (it.id == requestId) it.copy(status = newStatus) else it
+    }
   }
 
   /**
@@ -820,6 +1044,8 @@ object MaitreRepository {
     )
     _requests.value = listOf(newReq) + _requests.value
 
+    triggerIncomingDispatchRequest(newReq)
+
     addNotification(
       title = "تم نشر طلبك بنجاح",
       body = "طلبك: \"$title\" متاح الآن لجميع المحامين المقيدين بنقابة المحامين لتقديم عروضهم.",
@@ -850,7 +1076,8 @@ object MaitreRepository {
     if (targetReq != null && !lawyer.isWithinLawyerJurisdiction(targetReq.city, targetReq.courtLocation)) {
       return Result.failure(IllegalArgumentException("خارج نطاق الاختصاص الجغرافي المقيد للمحامي (${lawyer.assignedGovernorate} - ${lawyer.assignedDistrict}). المحامي متلقٍ للطلبات في إطاره الجغرافي المحدد مسبقاً فقط."))
     }
-    val feePercent = customPlatformFeePercent ?: _platformFeePercentage.value
+    val clientFee = customPlatformFeePercent ?: _clientPlatformFeePercentage.value
+    val lawyerFeeP = _lawyerPlatformFeePercentage.value
     val newBid = Bid(
       id = "bid_${System.currentTimeMillis() % 10000}",
       requestId = requestId,
@@ -863,7 +1090,9 @@ object MaitreRepository {
       lawyerCasesCount = 35,
       lawyerFee = lawyerFee,
       legalExpenses = legalExpenses,
-      platformFeePercent = feePercent,
+      clientFeePercent = clientFee,
+      lawyerFeePercent = lawyerFeeP,
+      platformFeePercent = clientFee,
       proposedDays = proposedDays,
       proposalNote = proposalNote,
       status = BidStatus.PENDING,
@@ -879,7 +1108,7 @@ object MaitreRepository {
 
     addNotification(
       title = "تم تقديم عرضك بنجاح",
-      body = "عرضك بإجمالي ${newBid.grandTotalAmount.toInt()} ج.م (أتعاب: ${lawyerFee.toInt()} ج.م، مصاريف: ${legalExpenses.toInt()} ج.م، رسم المنصة ${feePercent.toInt()}%: ${newBid.platformFeeAmount.toInt()} ج.م) بانتظار موافقة العميل.",
+      body = "تم تقديم عرضك القانوني بإجمالي ${newBid.grandTotalAmount.toInt()} ج.م بانتظار موافقة الموكل.",
       requestId = requestId
     )
 
@@ -909,7 +1138,7 @@ object MaitreRepository {
    */
   fun acceptBid(requestId: String, bidId: String, paymentMethod: String = "إنستاباي InstaPay") {
     val targetBid = _bids.value.find { it.id == bidId } ?: return
-    val lawyerAmount = targetBid.lawyerFee
+    val lawyerAmount = targetBid.lawyerNetAmount
     val platformFee = targetBid.platformFeeAmount
 
     // 1. Update Bid
@@ -934,10 +1163,14 @@ object MaitreRepository {
     _escrowTransactions.value = listOf(escrow) + _escrowTransactions.value
 
     // 3. Update Request Status
+    val generatedMeetingQrToken = "MTR-MEET-${requestId.takeLast(3).uppercase()}-${(1000..9999).random()}"
     _requests.value = _requests.value.map {
       if (it.id == requestId) it.copy(
         status = RequestStatus.IN_PROGRESS,
-        acceptedBidId = bidId
+        acceptedBidId = bidId,
+        isMeetingConfirmed = false,
+        meetingConfirmedAt = null,
+        meetingQrToken = generatedMeetingQrToken
       ) else it
     }
 
@@ -948,7 +1181,7 @@ object MaitreRepository {
       senderId = "system",
       senderName = "منظومة مِتر للربط القانوني",
       senderRole = UserRole.ADMIN,
-      text = "تم قبول العرض وسداد رسم المنصة (${platformFee.toInt()} ج.م) وتم فتح بيانات الاتصال المباشرة ومساحة العمل (CONTACT_UNLOCKED). أتعاب المحاماة (${lawyerAmount.toInt()} ج.م) والمصاريف (${targetBid.legalExpenses.toInt()} ج.م) تسوى بين العميل والمحامي مباشرة.",
+      text = "تم قبول العرض بنجاح بمبلغ إجمالي (${targetBid.grandTotalAmount.toInt()} ج.م) وتم فتح بيانات الاتصال المباشرة ومساحة العمل (CONTACT_UNLOCKED). تم توليد رمز الاستجابة السريعة (QR) بشاشة المحامي ويتعين مسحه بكاميرا العميل لتوثيق المقابلة وبدء الخدمة رسمياً.",
       timestamp = "الآن",
       isSystemMessage = true
     )
@@ -956,9 +1189,226 @@ object MaitreRepository {
 
     addNotification(
       title = "تم قبول العرض وفتح الاتصال",
-      body = "تم فتح بيانات الاتصال المباشرة مع المحامي لمتابعة إجراءات الدعوى أو الاستشارة.",
+      body = "تم فتح بيانات الاتصال المباشرة وتوليد رمز QR لبدء الخدمة وتوثيق المقابلة.",
       requestId = requestId
     )
+  }
+
+  /**
+   * تأكيد الالتقاء وبدء الخدمة القضائية رسمياً عبر مسح كاميرا العميل لرمز الـ QR الخاص بالمحامي
+   */
+  fun confirmMeetingWithQr(requestId: String, token: String? = null): Result<Boolean> {
+    val req = _requests.value.find { it.id == requestId }
+      ?: return Result.failure(Exception("لم يتم العثور على القضية"))
+    val nowFormatted = SimpleDateFormat("yyyy/MM/dd - hh:mm a", Locale("ar")).format(Date())
+
+    _requests.value = _requests.value.map {
+      if (it.id == requestId) {
+        it.copy(
+          isMeetingConfirmed = true,
+          meetingConfirmedAt = nowFormatted
+        )
+      } else it
+    }
+
+    val sysMsg = ChatMessage(
+      id = "msg_${System.currentTimeMillis()}",
+      requestId = requestId,
+      senderId = "system",
+      senderName = "منظومة مِتر للتحقق الرقمي",
+      senderRole = UserRole.ADMIN,
+      text = "تم تأكيد المقابلة والالتقاء بنجاح عبر مسح رمز الاستجابة السريعة (QR Code) بكاميرا العميل في ($nowFormatted) 🤝 تم إثبات الحضور وبدء الخدمة القانونية رسمياً.",
+      timestamp = "الآن",
+      isSystemMessage = true
+    )
+    _messages.value = _messages.value + sysMsg
+
+    addNotification(
+      title = "تم تأكيد المقابلة وبدء الخدمة",
+      body = "تم مسح رمز QR بنجاح وبدء الخدمة القانونية رسمياً ومباشرة الإجراءات.",
+      requestId = requestId
+    )
+
+    return Result.success(true)
+  }
+
+  /**
+   * طلب المحامي صرف جزء من الأتعاب أو سلفة مصاريف قضائية أثناء تنفيذ القضية
+   */
+  fun requestDisbursement(
+    requestId: String,
+    type: DisbursementType,
+    amount: Double,
+    reason: String,
+    receiptOrRef: String? = null
+  ): Result<DisbursementRequest> {
+    val req = _requests.value.find { it.id == requestId }
+      ?: return Result.failure(Exception("لم يتم العثور على القضية"))
+    val current = _currentUser.value
+    if (amount <= 0) {
+      return Result.failure(Exception("يجب أن يكون المبلغ المطلوب أكبر من الصفر"))
+    }
+
+    val newDisbursement = DisbursementRequest(
+      id = "disb_${System.currentTimeMillis() % 100000}",
+      requestId = requestId,
+      lawyerId = current.id,
+      lawyerName = current.name,
+      type = type,
+      amount = amount,
+      reason = reason.trim(),
+      receiptOrRef = receiptOrRef?.trim()?.ifBlank { null },
+      status = DisbursementStatus.PENDING,
+      createdAt = "اليوم - " + SimpleDateFormat("hh:mm a", Locale("ar")).format(Date())
+    )
+
+    _disbursementRequests.value = listOf(newDisbursement) + _disbursementRequests.value
+
+    val sysMsg = ChatMessage(
+      id = "msg_${System.currentTimeMillis()}",
+      requestId = requestId,
+      senderId = "system",
+      senderName = "إشعار مالي نظامي",
+      senderRole = UserRole.ADMIN,
+      text = "قام المحامي بطلب (${type.titleAr}) بمبلغ ${amount.toInt()} ج.م لبيان: \"$reason\". للعميل حق القبول أو الرفض أو التعديل من شاشة تفاصيل القضية.",
+      timestamp = "الآن",
+      isSystemMessage = true
+    )
+    _messages.value = _messages.value + sysMsg
+
+    addNotification(
+      title = "طلب دفعة / مصاريف قضائية من المحامي",
+      body = "طلب المحامي مبلغ ${amount.toInt()} ج.م (${type.titleAr}) لمتابعة القضية: $reason",
+      requestId = requestId
+    )
+
+    return Result.success(newDisbursement)
+  }
+
+  /**
+   * قبول الموكل لطلب الصرف
+   */
+  fun acceptDisbursement(disbursementId: String, clientNote: String? = null): Result<Unit> {
+    val target = _disbursementRequests.value.find { it.id == disbursementId }
+      ?: return Result.failure(Exception("طلب الصرف غير موجود"))
+
+    val nowFormatted = SimpleDateFormat("yyyy/MM/dd - hh:mm a", Locale("ar")).format(Date())
+    _disbursementRequests.value = _disbursementRequests.value.map {
+      if (it.id == disbursementId) {
+        it.copy(
+          status = DisbursementStatus.ACCEPTED,
+          clientNote = clientNote,
+          respondedAt = nowFormatted
+        )
+      } else it
+    }
+
+    val effectiveAmount = target.counterAmount ?: target.amount
+    val sysMsg = ChatMessage(
+      id = "msg_${System.currentTimeMillis()}",
+      requestId = target.requestId,
+      senderId = "system",
+      senderName = "تسوية مالية معتمدة",
+      senderRole = UserRole.ADMIN,
+      text = "وافق الموكل على صرف مبلغ ${effectiveAmount.toInt()} ج.م (${target.type.titleAr}) لصالح المحامي لمباشرة الإجراءات القضائية بنجاح ✓",
+      timestamp = "الآن",
+      isSystemMessage = true
+    )
+    _messages.value = _messages.value + sysMsg
+
+    addNotification(
+      title = "تمت الموافقة على طلب الصرف",
+      body = "وافق الموكل على صرف مبلغ ${effectiveAmount.toInt()} ج.م (${target.type.titleAr}).",
+      requestId = target.requestId
+    )
+
+    return Result.success(Unit)
+  }
+
+  /**
+   * رفض الموكل لطلب الصرف مع إبداء السبب
+   */
+  fun rejectDisbursement(disbursementId: String, reason: String): Result<Unit> {
+    val target = _disbursementRequests.value.find { it.id == disbursementId }
+      ?: return Result.failure(Exception("طلب الصرف غير موجود"))
+
+    val nowFormatted = SimpleDateFormat("yyyy/MM/dd - hh:mm a", Locale("ar")).format(Date())
+    _disbursementRequests.value = _disbursementRequests.value.map {
+      if (it.id == disbursementId) {
+        it.copy(
+          status = DisbursementStatus.REJECTED,
+          clientNote = reason,
+          respondedAt = nowFormatted
+        )
+      } else it
+    }
+
+    val sysMsg = ChatMessage(
+      id = "msg_${System.currentTimeMillis()}",
+      requestId = target.requestId,
+      senderId = "system",
+      senderName = "إشعار مالي",
+      senderRole = UserRole.ADMIN,
+      text = "تم رفض طلب صرف (${target.type.titleAr}) بمبلغ ${target.amount.toInt()} ج.م من قِبل الموكل. سبب الرفض: \"$reason\"",
+      timestamp = "الآن",
+      isSystemMessage = true
+    )
+    _messages.value = _messages.value + sysMsg
+
+    addNotification(
+      title = "تم رفض طلب الصرف",
+      body = "اعتذر الموكل عن صرف المبلغ المطلوب: $reason",
+      requestId = target.requestId
+    )
+
+    return Result.success(Unit)
+  }
+
+  /**
+   * تعديل الموكل للمبلغ المقترح وتقديم عرض بديل
+   */
+  fun modifyDisbursement(disbursementId: String, counterAmount: Double, clientNote: String): Result<Unit> {
+    val target = _disbursementRequests.value.find { it.id == disbursementId }
+      ?: return Result.failure(Exception("طلب الصرف غير موجود"))
+    if (counterAmount <= 0) {
+      return Result.failure(Exception("المبلغ المقترح يجب أن يكون أكبر من الصفر"))
+    }
+
+    val nowFormatted = SimpleDateFormat("yyyy/MM/dd - hh:mm a", Locale("ar")).format(Date())
+    _disbursementRequests.value = _disbursementRequests.value.map {
+      if (it.id == disbursementId) {
+        it.copy(
+          status = DisbursementStatus.MODIFIED_BY_CLIENT,
+          counterAmount = counterAmount,
+          clientNote = clientNote,
+          respondedAt = nowFormatted
+        )
+      } else it
+    }
+
+    val sysMsg = ChatMessage(
+      id = "msg_${System.currentTimeMillis()}",
+      requestId = target.requestId,
+      senderId = "system",
+      senderName = "اقتراح تعديل مالي",
+      senderRole = UserRole.ADMIN,
+      text = "اقترح الموكل تعديل المبلغ المطلوب من ${target.amount.toInt()} ج.م إلى ${counterAmount.toInt()} ج.م مع الملاحظة: \"$clientNote\". يحق للمحامي قبول التعديل ومباشرة الصرف.",
+      timestamp = "الآن",
+      isSystemMessage = true
+    )
+    _messages.value = _messages.value + sysMsg
+
+    addNotification(
+      title = "اقتراح تعديل على طلب الصرف",
+      body = "اقترح الموكل سداد مبلغ ${counterAmount.toInt()} ج.م بدلاً من ${target.amount.toInt()} ج.م.",
+      requestId = target.requestId
+    )
+
+    return Result.success(Unit)
+  }
+
+  fun lawyerAcceptCounterDisbursement(disbursementId: String): Result<Unit> {
+    return acceptDisbursement(disbursementId, "تم قبول المبلغ المعدل من قبل المحامي")
   }
 
   fun releaseEscrow(requestId: String) {
@@ -2208,9 +2658,21 @@ object MaitreRepository {
     desiredPracticeDegrees: List<String> = listOf("محاكم الاستئناف العالي ومجلس الدولة", "محاكم ابتدائية وجنح مستأنفة"),
     selectedGovernorates: List<String> = listOf(governorate),
     selectedCourts: List<String> = listOf(courtJurisdictionScope),
-    selectedDistricts: List<String> = emptyList()
+    selectedDistricts: List<String> = emptyList(),
+    lawyerTitle: LawyerTitle = LawyerTitle.COUNSELOR,
+    bio: String = "",
+    officeAddressManually: String = "",
+    officeLatitude: Double? = 30.0444,
+    officeLongitude: Double? = 31.2357
   ) {
     val newLawyerId = "lawyer_${System.currentTimeMillis()}"
+    val effectiveBio = bio.ifBlank {
+      "${lawyerTitle.labelAr} $name - محامٍ مقيد بنقابة المحامين الفرعية بـ$subBarAssociation. متخصص في ${specialization.titleAr}. مقر المكتب: $firmName."
+    }
+    val effectiveManualAddress = officeAddressManually.ifBlank {
+      "$governorate - $firmName"
+    }
+
     val updatedUser = UserProfile(
       id = newLawyerId,
       name = name,
@@ -2244,13 +2706,19 @@ object MaitreRepository {
       nationalIdCardBackUri = idCardBackUri,
       barCardFrontUri = barCardFrontUri,
       barCardBackUri = barCardBackUri,
-      officeAddress = "$governorate - $firmName"
+      officeAddress = effectiveManualAddress,
+      bio = effectiveBio,
+      officeAddressManually = effectiveManualAddress,
+      officeLatitude = officeLatitude,
+      officeLongitude = officeLongitude,
+      lawyerTitle = lawyerTitle
     )
     _currentUser.value = updatedUser
 
     val newLawyer = Lawyer(
       id = newLawyerId,
       name = name,
+      title = lawyerTitle,
       specialization = specialization,
       degree = proposedDegree,
       city = governorate,
@@ -2265,7 +2733,10 @@ object MaitreRepository {
       rating = 5.0,
       reviewsCount = 0,
       yearsExperience = yearsExperience,
-      bio = "الأستاذ $name - محامٍ مقيد بنقابة المحامين الفرعية بـ$subBarAssociation. متخصص في ${specialization.titleAr}. مقر المكتب: $firmName.",
+      bio = effectiveBio,
+      officeAddressManually = effectiveManualAddress,
+      officeLatitude = officeLatitude,
+      officeLongitude = officeLongitude,
       consultationFee = 1000.0,
       nationalIdCardFrontUri = idCardFrontUri,
       nationalIdCardBackUri = idCardBackUri,

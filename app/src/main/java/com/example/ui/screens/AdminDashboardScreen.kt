@@ -43,8 +43,11 @@ fun AdminDashboardScreen(
   supervisoryDecisions: List<SupervisoryDecision> = emptyList(),
   realtimeAuditLogs: List<RealtimeAuditLog> = emptyList(),
   currentPlatformFeePercentage: Double = 10.0,
+  clientPlatformFeePercentage: Double = 5.0,
+  lawyerPlatformFeePercentage: Double = 5.0,
   clientRegistrations: List<ClientRegistration> = emptyList(),
   onUpdatePlatformFeePercentage: (Double) -> Unit = {},
+  onUpdateDualPlatformFees: (clientFee: Double, lawyerFee: Double) -> Unit = { _, _ -> },
   onVerifyLawyer: (lawyerId: String, approved: Boolean) -> Unit,
   onVerifyClientRegistration: (clientId: String, approved: Boolean, rejectionReason: String?, adminNotes: String?) -> Unit = { _, _, _, _ -> },
   onVerifyLawyerWithDetails: (
@@ -131,9 +134,18 @@ fun AdminDashboardScreen(
   var auditLogCategoryFilter by remember { mutableStateOf<AuditLogCategory?>(null) }
   var requestStatusFilter by remember { mutableStateOf<RequestStatus?>(null) }
 
-  // Platform Fee Configuration State
-  var editableFeePercentage by remember(currentPlatformFeePercentage) {
-    mutableStateOf(currentPlatformFeePercentage.toString())
+  // Dual Platform Fee Configuration State (نسبتا العميل والمحامي وإدارتهما من المشرف)
+  var editableClientFeePercentage by remember(clientPlatformFeePercentage) {
+    mutableStateOf(clientPlatformFeePercentage.toString())
+  }
+  var editableLawyerFeePercentage by remember(lawyerPlatformFeePercentage) {
+    mutableStateOf(lawyerPlatformFeePercentage.toString())
+  }
+  var clientFeeEnabled by remember(clientPlatformFeePercentage) {
+    mutableStateOf(clientPlatformFeePercentage > 0.0)
+  }
+  var lawyerFeeEnabled by remember(lawyerPlatformFeePercentage) {
+    mutableStateOf(lawyerPlatformFeePercentage > 0.0)
   }
   var feeSaveSuccessMessage by remember { mutableStateOf<String?>(null) }
 
@@ -779,64 +791,196 @@ fun AdminDashboardScreen(
                 }
               }
 
-              // Platform fee percentage configurator
-              Text("تعديل النسبة المئوية لرسوم المنصة:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = TextPrimary)
+              // Dual Platform Fee Configuration (إدارة النسبتين من المشرف: عميل ومحامي)
+              Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                  text = "إعدادات رسوم المنصة المزدوجة (إدارة المشرف):",
+                  fontWeight = FontWeight.Bold,
+                  fontSize = 13.sp,
+                  color = NavyDark
+                )
+                Text(
+                  text = "تطابقاً مع سياسة المنصة: لا يظهر بند الرسوم كسطر مستقل لأي من الطرفين، بل تحسبه المنصة وتضيفه تلقائياً لإجمالي المبلغ المقدم من المحامي. يمكنك هنا تعديل أو تخفيض أو إيقاف أي نسبة منهما بشكل مستقل تماماً.",
+                  fontSize = 11.sp,
+                  color = TextSecondary,
+                  lineHeight = 16.sp
+                )
+              }
 
-              val feePresets = listOf(5.0, 7.5, 10.0, 12.5, 15.0)
-              Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+              val feePresets = listOf(0.0, 2.5, 5.0, 7.5, 10.0)
+
+              // 1. Client Fee Configuration Card
+              Card(
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = if (clientFeeEnabled) CreamSurfaceVariant else CreamBackground),
+                border = androidx.compose.foundation.BorderStroke(1.dp, if (clientFeeEnabled) GoldSecondary.copy(alpha = 0.5f) else BorderSubtle),
+                modifier = Modifier.fillMaxWidth()
               ) {
-                feePresets.forEach { preset ->
-                  val isSelected = editableFeePercentage.toDoubleOrNull() == preset
-                  Surface(
-                    color = if (isSelected) NavyPrimary else CreamSurfaceVariant,
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier
-                      .weight(1f)
-                      .clip(RoundedCornerShape(8.dp))
-                      .clickable { editableFeePercentage = preset.toString() }
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                  Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                   ) {
-                    Text(
-                      text = "${if (preset % 1 == 0.0) preset.toInt() else preset}%",
-                      textAlign = TextAlign.Center,
-                      fontSize = 11.sp,
-                      fontWeight = FontWeight.Bold,
-                      color = if (isSelected) Color.White else TextPrimary,
-                      modifier = Modifier.padding(vertical = 6.dp)
+                    Column {
+                      Text("1- نسبة المنصة من العميل (الموكل)", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = NavyPrimary)
+                      Text("تضاف تلقائياً إلى إجمالي العرض دون إظهار بند الرسوم", fontSize = 10.sp, color = TextMuted)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                      Text(if (clientFeeEnabled) "مفعلة" else "موقوفة", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = if (clientFeeEnabled) EmeraldSuccess else CrimsonError)
+                      Switch(
+                        checked = clientFeeEnabled,
+                        onCheckedChange = { clientFeeEnabled = it },
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = EmeraldSuccess)
+                      )
+                    }
+                  }
+
+                  if (clientFeeEnabled) {
+                    Row(
+                      modifier = Modifier.fillMaxWidth(),
+                      horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                      feePresets.forEach { preset ->
+                        val isSelected = editableClientFeePercentage.toDoubleOrNull() == preset
+                        Surface(
+                          color = if (isSelected) NavyPrimary else Color.White,
+                          shape = RoundedCornerShape(6.dp),
+                          border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) NavyPrimary else BorderSubtle),
+                          modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { editableClientFeePercentage = preset.toString() }
+                        ) {
+                          Text(
+                            text = "${if (preset % 1 == 0.0) preset.toInt() else preset}%",
+                            textAlign = TextAlign.Center,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isSelected) Color.White else TextPrimary,
+                            modifier = Modifier.padding(vertical = 5.dp)
+                          )
+                        }
+                      }
+                    }
+
+                    OutlinedTextField(
+                      value = editableClientFeePercentage,
+                      onValueChange = { editableClientFeePercentage = it },
+                      label = { Text("نسبة العميل المئوية (%)", fontSize = 11.sp) },
+                      shape = RoundedCornerShape(8.dp),
+                      modifier = Modifier.fillMaxWidth()
                     )
                   }
                 }
               }
 
-              Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+              // 2. Lawyer Fee Configuration Card
+              Card(
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = if (lawyerFeeEnabled) CreamSurfaceVariant else CreamBackground),
+                border = androidx.compose.foundation.BorderStroke(1.dp, if (lawyerFeeEnabled) EmeraldSuccess.copy(alpha = 0.5f) else BorderSubtle),
+                modifier = Modifier.fillMaxWidth()
               ) {
-                OutlinedTextField(
-                  value = editableFeePercentage,
-                  onValueChange = { editableFeePercentage = it },
-                  label = { Text("النسبة المئوية (%)", fontSize = 11.sp) },
-                  shape = RoundedCornerShape(10.dp),
-                  modifier = Modifier.weight(1f)
-                )
-
-                Button(
-                  onClick = {
-                    val newPercent = editableFeePercentage.toDoubleOrNull() ?: 10.0
-                    if (newPercent in 1.0..50.0) {
-                      onUpdatePlatformFeePercentage(newPercent)
-                      feeSaveSuccessMessage = "تم حفظ نسبة المنصة إلى $newPercent% وسريانها فوراً."
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                  Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                  ) {
+                    Column {
+                      Text("2- نسبة المنصة من المحامي", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = NavyPrimary)
+                      Text("تقتطع من صافي أتعاب المحامي عند تحرير الضمان", fontSize = 10.sp, color = TextMuted)
                     }
-                  },
-                  colors = ButtonDefaults.buttonColors(containerColor = EmeraldSuccess),
-                  shape = RoundedCornerShape(10.dp),
-                  modifier = Modifier.height(52.dp)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                      Text(if (lawyerFeeEnabled) "مفعلة" else "موقوفة", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = if (lawyerFeeEnabled) EmeraldSuccess else CrimsonError)
+                      Switch(
+                        checked = lawyerFeeEnabled,
+                        onCheckedChange = { lawyerFeeEnabled = it },
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = EmeraldSuccess)
+                      )
+                    }
+                  }
+
+                  if (lawyerFeeEnabled) {
+                    Row(
+                      modifier = Modifier.fillMaxWidth(),
+                      horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                      feePresets.forEach { preset ->
+                        val isSelected = editableLawyerFeePercentage.toDoubleOrNull() == preset
+                        Surface(
+                          color = if (isSelected) EmeraldSuccess else Color.White,
+                          shape = RoundedCornerShape(6.dp),
+                          border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) EmeraldSuccess else BorderSubtle),
+                          modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { editableLawyerFeePercentage = preset.toString() }
+                        ) {
+                          Text(
+                            text = "${if (preset % 1 == 0.0) preset.toInt() else preset}%",
+                            textAlign = TextAlign.Center,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isSelected) Color.White else TextPrimary,
+                            modifier = Modifier.padding(vertical = 5.dp)
+                          )
+                        }
+                      }
+                    }
+
+                    OutlinedTextField(
+                      value = editableLawyerFeePercentage,
+                      onValueChange = { editableLawyerFeePercentage = it },
+                      label = { Text("نسبة المحامي المئوية (%)", fontSize = 11.sp) },
+                      shape = RoundedCornerShape(8.dp),
+                      modifier = Modifier.fillMaxWidth()
+                    )
+                  }
+                }
+              }
+
+              // Summary & Save Actions
+              val clientVal = if (clientFeeEnabled) (editableClientFeePercentage.toDoubleOrNull() ?: 0.0) else 0.0
+              val lawyerVal = if (lawyerFeeEnabled) (editableLawyerFeePercentage.toDoubleOrNull() ?: 0.0) else 0.0
+              val totalFeeCombined = clientVal + lawyerVal
+
+              Surface(
+                color = NavyDark,
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth()
+              ) {
+                Row(
+                  modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                  horizontalArrangement = Arrangement.SpaceBetween,
+                  verticalAlignment = Alignment.CenterVertically
                 ) {
-                  Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
-                  Spacer(modifier = Modifier.width(4.dp))
-                  Text("حفظ", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                  Column {
+                    Text("إجمالي عائد رسوم المنصة:", fontSize = 11.sp, color = GoldLight)
+                    Text(
+                      text = "العميل: $clientVal% + المحامي: $lawyerVal% = $totalFeeCombined%",
+                      fontSize = 12.sp,
+                      fontWeight = FontWeight.Bold,
+                      color = Color.White
+                    )
+                  }
+
+                  Button(
+                    onClick = {
+                      onUpdateDualPlatformFees(clientVal, lawyerVal)
+                      onUpdatePlatformFeePercentage(totalFeeCombined)
+                      feeSaveSuccessMessage = "تم حفظ وتفعيل إعدادات الرسوم (عميل: $clientVal%، محامي: $lawyerVal%، الإجمالي: $totalFeeCombined%) فورياً في قاعدة البيانات."
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = GoldSecondary, contentColor = NavyDark),
+                    shape = RoundedCornerShape(8.dp)
+                  ) {
+                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("حفظ التغييرات", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                  }
                 }
               }
 

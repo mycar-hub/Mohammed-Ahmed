@@ -18,6 +18,17 @@ enum class KycVerificationStatus(val labelAr: String) {
 }
 
 /**
+ * الألقاب المهنية الشرفية للمحامي
+ */
+enum class LawyerTitle(val labelAr: String) {
+  COUNSELOR("المستشار"),
+  PROFESSOR("الأستاذ"),
+  MR("السيد"),
+  ATTORNEY("المحامي"),
+  DOCTOR("الدكتور")
+}
+
+/**
  * درجات قيد المحامين بنقابة المحامين المصرية
  */
 enum class LawyerBarDegree(
@@ -127,6 +138,11 @@ data class UserProfile(
   val assignedDistrict: String = "مصر الجديدة",
   val assignedCourtJurisdiction: String = "نيابة مصر الجديدة الجزئية • محكمة مصر الجديدة الابتدائية",
   val subBarAssociation: String = "نقابة محامي شمال القاهرة (العباسية)",
+  val lawyerTitle: LawyerTitle = LawyerTitle.COUNSELOR,
+  val bio: String = "محامٍ ومستشار قانوني مقيد بنقابة المحامين ومتخصص في تقديم الاستشارات القانونية وتمثيل الموكلين.",
+  val officeAddressManually: String = "القاهرة - مصر الجديدة - شارع الأهرام - برج مِتر القانوني",
+  val officeLatitude: Double? = 30.0911,
+  val officeLongitude: Double? = 31.3253,
   val desiredPracticeDegrees: List<String> = listOf(
     "المحاكم الابتدائية ومحاكم الجنح المستأنفة ولجان التوفيق",
     "المحاكم الجزئية ومتابعة تحقيقات النيابة والتدريب"
@@ -946,7 +962,55 @@ data class ServiceRequest(
   val createdAt: String,
   val bidsCount: Int = 0,
   val courtLocation: GeoLocation? = null,
-  val appliedTemplateId: String? = null
+  val appliedTemplateId: String? = null,
+  val isMeetingConfirmed: Boolean = false,
+  val meetingConfirmedAt: String? = null,
+  val meetingQrToken: String? = null
+)
+
+/**
+ * أنواع طلبات الصرف أثناء تنفيذ القضية (أتعاب مرحلية أو مصاريف قضائية)
+ */
+enum class DisbursementType(val titleAr: String, val badgeAr: String, val descAr: String) {
+  JUDICIAL_EXPENSES(
+    titleAr = "مصاريف ورسوم قضائية",
+    badgeAr = "مصاريف ورسوم قضائية",
+    descAr = "رسوم قيد وإيداع، أمانة الخبير القضائي، المعاينة الهندسية، الانتقال، أو استخراج شهادات رسمية"
+  ),
+  INTERIM_FEE(
+    titleAr = "دفعة مرحلية من الأتعاب",
+    badgeAr = "دفعة أتعاب مرحلية",
+    descAr = "دفعة مستحقة عن إنجاز مرحلة محددة (كصياغة صحيفة الدعوى، إتمام التوقيع، أو حضور جلسة المرافعة)"
+  )
+}
+
+/**
+ * حالة طلب سلفة المصاريف أو الدفعة
+ */
+enum class DisbursementStatus(val labelAr: String) {
+  PENDING("بانتظار رد الموكل"),
+  ACCEPTED("تم القبول والصرف ✓"),
+  REJECTED("تم الرفض ✕"),
+  MODIFIED_BY_CLIENT("تم اقتراح تعديل من الموكل ⚖️")
+}
+
+/**
+ * طلب صرف دفعة أو مصاريف قضائية يقدمه المحامي أثناء تنفيذ العرض
+ */
+data class DisbursementRequest(
+  val id: String,
+  val requestId: String,
+  val lawyerId: String,
+  val lawyerName: String,
+  val type: DisbursementType,
+  val amount: Double,
+  val reason: String,
+  val receiptOrRef: String? = null,
+  val status: DisbursementStatus = DisbursementStatus.PENDING,
+  val counterAmount: Double? = null, // المبلغ المقترح بعد التعديل من العميل
+  val clientNote: String? = null, // ملاحظات الموكل عند الرفض أو التعديل
+  val createdAt: String,
+  val respondedAt: String? = null
 )
 
 enum class BidStatus(val labelAr: String) {
@@ -967,27 +1031,66 @@ data class Bid(
   val lawyerCasesCount: Int,
   val lawyerFee: Double, // خانة أتعاب المحامي
   val legalExpenses: Double = 0.0, // خانة المصاريف القانونية المقدرة إن وجدت
-  val platformFeePercent: Double = 10.0, // نسبة المنصة المطبقة (قابلة للتعديل من الإدارة)
+  val clientFeePercent: Double = 5.0, // نسبة المنصة المطبقة على العميل (تضاف للمبلغ)
+  val lawyerFeePercent: Double = 5.0, // نسبة المنصة المطبقة على المحامي (تستقطع من أتعابه)
+  val platformFeePercent: Double = clientFeePercent, // توافقية عكسية
   val proposedDays: Int,
   val proposalNote: String,
   val status: BidStatus = BidStatus.PENDING,
   val createdAt: String
 ) {
-  // إجمالي الأتعاب والمصاريف قبل عمولة المنصة
+  // إجمالي الأتعاب والمصاريف الأساسية المقدمة من المحامي
   val baseTotalAmount: Double
     get() = lawyerFee + legalExpenses
 
-  // قيمة نسبة المنصة المحسوبة على إجمالي المبلغين
-  val platformFeeAmount: Double
-    get() = baseTotalAmount * (platformFeePercent / 100.0)
+  // قيمة رسم المنصة من العميل (تحسبه المنصة وتضيفه لإجمالي المبلغ المقدم من المحامي)
+  val clientFeeAmount: Double
+    get() = if (clientFeePercent > 0.0) baseTotalAmount * (clientFeePercent / 100.0) else 0.0
 
-  // الإجمالي الشامل النهائي المعروض للمستخدم النهائي
+  // قيمة رسم المنصة المستقطع من المحامي
+  val lawyerFeeAmount: Double
+    get() = if (lawyerFeePercent > 0.0) lawyerFee * (lawyerFeePercent / 100.0) else 0.0
+
+  // إجمالي رسوم المنصة المحصلة من الطرفين
+  val platformFeeAmount: Double
+    get() = clientFeeAmount + lawyerFeeAmount
+
+  // الإجمالي الشامل النهائي المعروض للمستخدم النهائي (المبلغ المقدم من المحامي + رسم العميل المضاف تلقائياً)
   val grandTotalAmount: Double
-    get() = baseTotalAmount + platformFeeAmount
+    get() = baseTotalAmount + clientFeeAmount
+
+  // صافي استحقاق المحامي بعد خصم نسبته المقررة
+  val lawyerNetAmount: Double
+    get() = (lawyerFee - lawyerFeeAmount) + legalExpenses
 
   // التوافقية العكسية
   val proposedAmount: Double
     get() = grandTotalAmount
+
+  fun getMaskedDisplayName(): String {
+    val cleanTitle = lawyerTitle.ifBlank { "الأستاذ" }
+    val rawNameWithoutTitle = lawyerName
+      .replace("المستشار", "")
+      .replace("الأستاذة", "")
+      .replace("الأستاذ", "")
+      .replace("السيدة", "")
+      .replace("السيد", "")
+      .replace("د.", "")
+      .replace("الدكتور", "")
+      .replace("الدكتورة", "")
+      .trim()
+    val parts = rawNameWithoutTitle.split("\\s+".toRegex()).filter { it.isNotBlank() }
+    if (parts.isEmpty()) return "$cleanTitle ****"
+    val firstName = parts[0]
+    val maskedRest = parts.drop(1).joinToString(" ") { "★".repeat(it.length.coerceIn(3, 6)) }
+    return if (maskedRest.isBlank()) "$cleanTitle $firstName ★★★" else "$cleanTitle $firstName $maskedRest"
+  }
+
+  fun getFullDisplayName(): String {
+    val cleanTitle = lawyerTitle.ifBlank { "الأستاذ" }
+    val hasTitleAlready = lawyerName.contains("المستشار") || lawyerName.contains("الأستاذ") || lawyerName.contains("السيد") || lawyerName.contains("الدكتور")
+    return if (hasTitleAlready) lawyerName else "$cleanTitle $lawyerName"
+  }
 }
 
 enum class EscrowStatus(val labelAr: String) {
@@ -1018,6 +1121,7 @@ enum class VerificationStatus(val labelAr: String) {
 data class Lawyer(
   val id: String,
   val name: String,
+  val title: LawyerTitle = LawyerTitle.COUNSELOR,
   val specialization: RequestCategory,
   val degree: LawyerBarDegree = LawyerBarDegree.APPEAL,
   val city: String,
@@ -1035,6 +1139,9 @@ data class Lawyer(
   val bio: String,
   val consultationFee: Double,
   val firmName: String? = null,
+  val officeAddressManually: String = "القاهرة - مصر الجديدة - شارع الأهرام - برج مِتر القانوني",
+  val officeLatitude: Double? = 30.0911,
+  val officeLongitude: Double? = 31.3253,
   val nationalIdCardFrontUri: String? = "id_card_front.jpg",
   val nationalIdCardBackUri: String? = "id_card_back.jpg",
   val barCardFrontUri: String? = "bar_card_front.jpg",
@@ -1044,7 +1151,37 @@ data class Lawyer(
   val adminReviewNotes: String? = null,
   val rejectionReason: String? = null,
   val approvedByAdmin: String? = null
-)
+) {
+  /**
+   * يظهر فقط اللقب والاسم الأول وباقي الاسم نجوم للعميل قبل الاتفاق
+   * مثال: "المستشار سامح **** *****"
+   */
+  fun getMaskedDisplayName(): String {
+    val cleanTitle = title.labelAr
+    // إزالة اللقب إذا كان مدمجاً في الاسم
+    val rawNameWithoutTitle = name
+      .replace("المستشار", "")
+      .replace("الأستاذة", "")
+      .replace("الأستاذ", "")
+      .replace("السيدة", "")
+      .replace("السيد", "")
+      .replace("د.", "")
+      .replace("الدكتور", "")
+      .replace("الدكتورة", "")
+      .trim()
+    val parts = rawNameWithoutTitle.split("\\s+".toRegex()).filter { it.isNotBlank() }
+    if (parts.isEmpty()) return "$cleanTitle ****"
+    val firstName = parts[0]
+    val maskedRest = parts.drop(1).joinToString(" ") { "★".repeat(it.length.coerceIn(3, 6)) }
+    return if (maskedRest.isBlank()) "$cleanTitle $firstName ★★★" else "$cleanTitle $firstName $maskedRest"
+  }
+
+  fun getFullDisplayName(): String {
+    val cleanTitle = title.labelAr
+    val hasTitleAlready = name.contains("المستشار") || name.contains("الأستاذ") || name.contains("السيد") || name.contains("الدكتور")
+    return if (hasTitleAlready) name else "$cleanTitle $name"
+  }
+}
 
 data class ClientRegistration(
   val id: String,

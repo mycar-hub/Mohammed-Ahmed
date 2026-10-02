@@ -22,6 +22,7 @@ import com.example.data.MaitreRepository
 import com.example.data.local.AppPreferences
 import com.example.data.local.ThemeMode
 import com.example.model.*
+import com.example.ui.components.LawyerDispatchPopup
 import com.example.ui.components.MaitreBottomNavigation
 import com.example.ui.components.MaitreTopAppBar
 import com.example.ui.screens.*
@@ -69,12 +70,16 @@ fun MaitreApp(appPreferences: AppPreferences = AppPreferences()) {
   val violations by MaitreRepository.violations.collectAsStateWithLifecycle()
   val securityRiskEvents by MaitreRepository.securityRiskEvents.collectAsStateWithLifecycle()
   val platformFeePercentage by MaitreRepository.platformFeePercentage.collectAsStateWithLifecycle()
+  val clientPlatformFeePercentage by MaitreRepository.clientPlatformFeePercentage.collectAsStateWithLifecycle()
+  val lawyerPlatformFeePercentage by MaitreRepository.lawyerPlatformFeePercentage.collectAsStateWithLifecycle()
   val withdrawalRequests by MaitreRepository.withdrawalRequests.collectAsStateWithLifecycle()
   val coupons by MaitreRepository.coupons.collectAsStateWithLifecycle()
   val platformWithdrawals by MaitreRepository.platformWithdrawals.collectAsStateWithLifecycle()
   val supervisoryDecisions by MaitreRepository.supervisoryDecisions.collectAsStateWithLifecycle()
   val realtimeAuditLogs by MaitreRepository.realtimeAuditLogs.collectAsStateWithLifecycle()
   val clientRegistrations by MaitreRepository.clientRegistrations.collectAsStateWithLifecycle()
+  val isLawyerAvailable by MaitreRepository.isLawyerAvailable.collectAsStateWithLifecycle()
+  val incomingDispatchRequest by MaitreRepository.incomingDispatchRequest.collectAsStateWithLifecycle()
 
   // Navigation State
   var currentRoute by remember { mutableStateOf("home") }
@@ -102,7 +107,7 @@ fun MaitreApp(appPreferences: AppPreferences = AppPreferences()) {
           snackbarHostState.showSnackbar("تم تسجيل بيانات الهوية وحساب العميل بنجاح ✓")
         }
       },
-      onRegisterLawyer = { name, phone, email, nationalId, licenseNo, degree, subBar, gov, courtScope, spec, expYears, firmName, barUp, idUp, barBackUp, idBackUp, idFrontUri, idBackUri, barFrontUri, barBackUri, desiredDegrees, selectedGovs, selectedCourts, selectedDistricts ->
+      onRegisterLawyer = { name, phone, email, nationalId, licenseNo, degree, subBar, gov, courtScope, spec, expYears, firmName, barUp, idUp, barBackUp, idBackUp, idFrontUri, idBackUri, barFrontUri, barBackUri, desiredDegrees, selectedGovs, selectedCourts, selectedDistricts, lawyerTitle, bio, manualAddress, officeLat, officeLng ->
         MaitreRepository.registerLawyerWithKyc(
           name = name,
           phone = phone,
@@ -127,7 +132,12 @@ fun MaitreApp(appPreferences: AppPreferences = AppPreferences()) {
           desiredPracticeDegrees = desiredDegrees,
           selectedGovernorates = selectedGovs,
           selectedCourts = selectedCourts,
-          selectedDistricts = selectedDistricts
+          selectedDistricts = selectedDistricts,
+          lawyerTitle = lawyerTitle,
+          bio = bio,
+          officeAddressManually = manualAddress,
+          officeLatitude = officeLat,
+          officeLongitude = officeLng
         )
         currentRoute = "home"
         coroutineScope.launch {
@@ -158,7 +168,7 @@ fun MaitreApp(appPreferences: AppPreferences = AppPreferences()) {
     return
   }
 
-  val isTopLevelScreen = currentRoute in listOf("home", "lawyers", "escrow", "profile", "admin")
+  val isTopLevelScreen = currentRoute in listOf("home", "tracker", "lawyers", "escrow", "profile", "admin", "lawyer_requests")
 
   Scaffold(
     containerColor = MaterialTheme.adaptiveBackground,
@@ -236,31 +246,135 @@ fun MaitreApp(appPreferences: AppPreferences = AppPreferences()) {
             },
             onBrowseLawyersClick = { currentRoute = "lawyers" },
             onEscrowClick = { currentRoute = "deposit" },
-            onAdminClick = { currentRoute = "admin" }
+            onTrackerClick = { currentRoute = "tracker" },
+            onAdminClick = { currentRoute = "admin" },
+            isLawyerAvailable = isLawyerAvailable,
+            onToggleLawyerAvailability = { available ->
+              MaitreRepository.setLawyerAvailable(available)
+              coroutineScope.launch {
+                snackbarHostState.showSnackbar(
+                  if (available) "أنت الآن متاح لتلقي الطلبات الفورية بنطاقك الجغرافي ✓"
+                  else "أنت الآن متوقف عن تلقي الطلبات والإشعارات مؤقتاً."
+                )
+              }
+            },
+            onNavigateToLawyerRequests = { currentRoute = "lawyer_requests" },
+            onSimulateIncomingRequest = {
+              val simReq = MaitreRepository.simulateIncomingRequestForLawyer()
+              coroutineScope.launch {
+                snackbarHostState.showSnackbar("ورد طلب فوري مطابق لاختصاصك الجغرافي (${simReq.city} - ${simReq.courtLocation?.district})!")
+              }
+            }
+          )
+        }
+
+        "tracker" -> {
+          RequestTrackerScreen(
+            currentUser = currentUser,
+            requests = requests,
+            bids = bids,
+            lawyers = lawyers,
+            escrowTransactions = escrowTransactions,
+            disputes = disputes,
+            onBackClick = null,
+            onRequestClick = { reqId ->
+              selectedRequestId = reqId
+              currentRoute = "request_detail"
+            },
+            onOpenWorkspace = { reqId ->
+              selectedRequestId = reqId
+              currentRoute = "chat"
+            },
+            onOpenEscrow = { reqId ->
+              currentRoute = "escrow"
+            },
+            onOpenDispute = { reqId, reason, details ->
+              MaitreRepository.openDispute(reqId, reason, details)
+              coroutineScope.launch {
+                snackbarHostState.showSnackbar("تم تسجيل النزاع وتجميد الضمان وإحالة القضية للجنة التحكيم ⚖️")
+              }
+            },
+            onUpdateStatus = { reqId, newStatus ->
+              MaitreRepository.updateRequestStatus(reqId, newStatus)
+              coroutineScope.launch {
+                snackbarHostState.showSnackbar("تم تحديث مسار القضية بنجاح ✓")
+              }
+            },
+            onNewRequestClick = {
+              selectedTemplateId = null
+              currentRoute = "create_request"
+            }
           )
         }
 
         "lawyers" -> {
-          LawyersListScreen(
-            lawyers = lawyers,
-            currentUserRole = currentUser.role,
-            assignedGovernorate = currentUser.assignedGovernorate,
-            onBackClick = null,
-            onLawyerClick = { lawyerId ->
-              selectedLawyerId = lawyerId
-              currentRoute = "lawyer_detail"
-            },
-            onRequestConsultation = {
-              if (currentUser.role == UserRole.LAWYER) {
-                coroutineScope.launch {
-                  snackbarHostState.showSnackbar("لا يجوز للمحامي طلب تقديم خدمة. دورك هو متلقٍ للطلبات في نطاق اختصاصك الجغرافي.")
-                }
-              } else {
+          if (currentUser.role == UserRole.LAWYER) {
+            currentRoute = "home"
+            coroutineScope.launch {
+              snackbarHostState.showSnackbar("صفحة دليل المحامين غير متاحة لحساب المحامي.")
+            }
+          } else {
+            LawyersListScreen(
+              lawyers = lawyers,
+              currentUserRole = currentUser.role,
+              assignedGovernorate = currentUser.assignedGovernorate,
+              onBackClick = null,
+              onLawyerClick = { lawyerId ->
+                selectedLawyerId = lawyerId
+                currentRoute = "lawyer_detail"
+              },
+              onRequestConsultation = {
                 selectedTemplateId = null
                 currentRoute = "create_request"
               }
-            }
-          )
+            )
+          }
+        }
+
+        "lawyer_requests" -> {
+          if (currentUser.role != UserRole.LAWYER) {
+            currentRoute = "home"
+          } else {
+            LawyerRequestsScreen(
+              currentUser = currentUser,
+              isAvailable = isLawyerAvailable,
+              requests = requests,
+              bids = bids,
+              onToggleAvailability = { available ->
+                MaitreRepository.setLawyerAvailable(available)
+                coroutineScope.launch {
+                  snackbarHostState.showSnackbar(
+                    if (available) "أنت الآن متاح لتلقي الطلبات الفورية بنطاقك الجغرافي ✓"
+                    else "أنت الآن متوقف عن تلقي الطلبات والإشعارات مؤقتاً."
+                  )
+                }
+              },
+              onSimulateIncomingRequest = {
+                val simReq = MaitreRepository.simulateIncomingRequestForLawyer()
+                coroutineScope.launch {
+                  snackbarHostState.showSnackbar("ورد طلب فوري مطابق لاختصاصك الجغرافي (${simReq.city} - ${simReq.courtLocation?.district})!")
+                }
+              },
+              onRequestClick = { reqId ->
+                selectedRequestId = reqId
+                currentRoute = "request_detail"
+              },
+              onAcceptRequestQuick = { req ->
+                val result = MaitreRepository.acceptIncomingDispatchRequest(req.id, req.budgetAmount)
+                if (result.isSuccess) {
+                  selectedRequestId = req.id
+                  coroutineScope.launch {
+                    snackbarHostState.showSnackbar("تم قبول الطلب فورياً وتقديم عرضك بنجاح!")
+                  }
+                  currentRoute = "request_detail"
+                }
+              },
+              onOpenWorkspace = { reqId ->
+                selectedRequestId = reqId
+                currentRoute = "chat"
+              }
+            )
+          }
         }
 
         "escrow" -> {
@@ -404,7 +518,8 @@ fun MaitreApp(appPreferences: AppPreferences = AppPreferences()) {
             onBackClick = null,
             onNavigateToAdmin = { currentRoute = "admin" },
             onNavigateToWithdrawal = { currentRoute = "escrow" },
-            onNavigateToRequests = { currentRoute = "home" }
+            onNavigateToRequests = { currentRoute = "home" },
+            onNavigateToTracker = { currentRoute = "tracker" }
           )
         }
 
@@ -422,7 +537,15 @@ fun MaitreApp(appPreferences: AppPreferences = AppPreferences()) {
             supervisoryDecisions = supervisoryDecisions,
             realtimeAuditLogs = realtimeAuditLogs,
             currentPlatformFeePercentage = platformFeePercentage,
+            clientPlatformFeePercentage = clientPlatformFeePercentage,
+            lawyerPlatformFeePercentage = lawyerPlatformFeePercentage,
             clientRegistrations = clientRegistrations,
+            onUpdateDualPlatformFees = { clientFee, lawyerFee ->
+              MaitreRepository.updateDualPlatformFees(clientFee, lawyerFee)
+              coroutineScope.launch {
+                snackbarHostState.showSnackbar("تم حفظ وتحديث نسبتي المنصة (عميل: $clientFee% - محامي: $lawyerFee%) بنجاح ✓")
+              }
+            },
             onUpdatePlatformFeePercentage = { newPercentage ->
               MaitreRepository.updatePlatformFeePercentage(newPercentage)
               coroutineScope.launch {
@@ -557,6 +680,8 @@ fun MaitreApp(appPreferences: AppPreferences = AppPreferences()) {
               bids = reqBids,
               escrow = reqEscrow,
               currentUser = currentUser,
+              clientFeePercentage = clientPlatformFeePercentage,
+              lawyerFeePercentage = lawyerPlatformFeePercentage,
               platformFeePercentage = platformFeePercentage,
               onBackClick = { currentRoute = "home" },
               onAcceptBid = { bidId, paymentMethod ->
@@ -717,6 +842,34 @@ fun MaitreApp(appPreferences: AppPreferences = AppPreferences()) {
             }
           )
         }
+      }
+
+      // نافذة إشعار الطلب الفوري المنبثقة لمدة 20 ثانية مع صوت المنبه (مثل تطبيقات النقل الذكي)
+      if (currentUser.role == UserRole.LAWYER && isLawyerAvailable && incomingDispatchRequest != null) {
+        val activeReq = incomingDispatchRequest!!
+        LawyerDispatchPopup(
+          request = activeReq,
+          onAccept = { req ->
+            val acceptRes = MaitreRepository.acceptIncomingDispatchRequest(req.id, req.budgetAmount)
+            selectedRequestId = req.id
+            coroutineScope.launch {
+              snackbarHostState.showSnackbar("تم قبول الطلب فورياً بنجاح ومباشرة الإجراءات!")
+            }
+            currentRoute = "request_detail"
+          },
+          onDecline = {
+            MaitreRepository.dismissIncomingDispatchRequest()
+            coroutineScope.launch {
+              snackbarHostState.showSnackbar("تم تجاهل الطلب.")
+            }
+          },
+          onTimeout = {
+            MaitreRepository.dismissIncomingDispatchRequest()
+            coroutineScope.launch {
+              snackbarHostState.showSnackbar("انتهت مهلة الـ 20 ثانية - تم توجيه الطلب لمحامٍ آخر في النطاق الجغرافي.")
+            }
+          }
+        )
       }
     }
   }

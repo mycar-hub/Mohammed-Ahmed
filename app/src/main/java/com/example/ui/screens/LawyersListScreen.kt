@@ -221,6 +221,9 @@ fun LawyerDetailedCard(
   onClick: () -> Unit,
   onRequestConsultation: () -> Unit
 ) {
+  // للعميل: يظهر فقط اللقب والاسم الأول وباقي الاسم نجوم
+  val displayName = if (isLawyerUser) lawyer.getFullDisplayName() else lawyer.getMaskedDisplayName()
+
   Surface(
     color = MaterialTheme.adaptiveSurface,
     shape = RoundedCornerShape(16.dp),
@@ -254,9 +257,9 @@ fun LawyerDetailedCard(
             contentAlignment = Alignment.Center
           ) {
             Text(
-              text = lawyer.name.take(2),
+              text = lawyer.title.labelAr.take(2),
               color = GoldLight,
-              fontSize = 18.sp,
+              fontSize = 16.sp,
               fontWeight = FontWeight.Bold
             )
           }
@@ -264,7 +267,7 @@ fun LawyerDetailedCard(
           Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
               Text(
-                text = lawyer.name,
+                text = displayName,
                 fontWeight = FontWeight.Bold,
                 fontSize = 15.sp,
                 color = MaterialTheme.adaptiveTextPrimary
@@ -280,7 +283,7 @@ fun LawyerDetailedCard(
               }
             }
             Text(
-              text = "ترخيص عدل: ${lawyer.licenseNumber} • ${lawyer.city}",
+              text = "التخصص: ${lawyer.specialization.titleAr} • ${lawyer.degree.titleAr}",
               fontSize = 11.sp,
               color = MaterialTheme.adaptiveTextMuted
             )

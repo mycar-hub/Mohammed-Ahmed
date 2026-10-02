@@ -48,7 +48,8 @@ fun ProfileScreen(
   onLogout: () -> Unit,
   onBackClick: (() -> Unit)? = null,
   onNavigateToAdmin: (() -> Unit)? = null,
-  onNavigateToRequests: (() -> Unit)? = null
+  onNavigateToRequests: (() -> Unit)? = null,
+  onNavigateToTracker: (() -> Unit)? = null
 ) {
   var showEditJudicialScopeDialog by remember { mutableStateOf(false) }
 
@@ -544,6 +545,19 @@ fun ProfileScreen(
                 fontSize = 11.5.sp,
                 color = MaterialTheme.adaptiveTextSecondary
               )
+
+              if (onNavigateToTracker != null) {
+                Button(
+                  onClick = onNavigateToTracker,
+                  shape = RoundedCornerShape(10.dp),
+                  modifier = Modifier.fillMaxWidth(),
+                  colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary)
+                ) {
+                  Icon(Icons.Default.Timeline, contentDescription = null, modifier = Modifier.size(16.dp), tint = GoldSecondary)
+                  Spacer(modifier = Modifier.width(6.dp))
+                  Text("تتبع مسار وحالة القضايا (شريط التقدم)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+              }
 
               if (onNavigateToRequests != null) {
                 OutlinedButton(

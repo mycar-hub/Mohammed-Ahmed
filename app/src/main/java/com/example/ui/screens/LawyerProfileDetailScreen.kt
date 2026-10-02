@@ -30,13 +30,20 @@ fun LawyerProfileDetailScreen(
   lawyer: Lawyer,
   reviews: List<LawyerReview>,
   currentUserRole: UserRole = UserRole.CLIENT,
+  isAgreementReached: Boolean = false,
   onBackClick: () -> Unit,
   onRequestConsultation: (RequestCategory) -> Unit
 ) {
+  val displayName = if (isAgreementReached || currentUserRole == UserRole.LAWYER || currentUserRole == UserRole.ADMIN) {
+    lawyer.getFullDisplayName()
+  } else {
+    lawyer.getMaskedDisplayName()
+  }
+
   Scaffold(
     topBar = {
       TopAppBar(
-        title = { Text(lawyer.name, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color.White) },
+        title = { Text(displayName, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color.White) },
         navigationIcon = {
           IconButton(onClick = onBackClick) {
             Icon(Icons.Default.ArrowForward, contentDescription = "رجوع", tint = Color.White)
@@ -123,16 +130,16 @@ fun LawyerProfileDetailScreen(
               contentAlignment = Alignment.Center
             ) {
               Text(
-                text = lawyer.name.take(2),
+                text = lawyer.title.labelAr.take(2),
                 color = GoldLight,
-                fontSize = 24.sp,
+                fontSize = 20.sp,
                 fontWeight = FontWeight.Bold
               )
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
               Text(
-                text = lawyer.name,
+                text = displayName,
                 fontWeight = FontWeight.Bold,
                 fontSize = 18.sp,
                 color = TextPrimary
@@ -149,7 +156,7 @@ fun LawyerProfileDetailScreen(
             }
 
             Text(
-              text = "نقابة المحامين المصرية • قيد استئناف ونقض رقم: ${lawyer.licenseNumber} • ${lawyer.city}",
+              text = "التخصص المعتمد: ${lawyer.specialization.titleAr} • درجة القيد: ${lawyer.degree.titleAr} • ${lawyer.city}",
               fontSize = 12.sp,
               color = TextMuted
             )
@@ -226,6 +233,106 @@ fun LawyerProfileDetailScreen(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
               )
+            }
+          }
+        }
+      }
+
+      // 2.5 Contact Details: Revealed ONLY after agreement or for Lawyer/Admin
+      item {
+        if (isAgreementReached || currentUserRole == UserRole.LAWYER || currentUserRole == UserRole.ADMIN) {
+          Surface(
+            color = EmeraldContainer.copy(alpha = 0.4f),
+            shape = RoundedCornerShape(16.dp),
+            border = androidx.compose.foundation.BorderStroke(1.5.dp, EmeraldSuccess),
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Column(
+              modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+              verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+              Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = EmeraldSuccess)
+                Text(
+                  text = "بيانات الاتصال المكتملة (تم الاتفاق والتعاقد ✓)",
+                  fontWeight = FontWeight.Bold,
+                  fontSize = 14.sp,
+                  color = EmeraldSuccess
+                )
+              }
+
+              Divider(color = EmeraldSuccess.copy(alpha = 0.3f))
+
+              Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Default.Person, contentDescription = null, tint = NavyPrimary, modifier = Modifier.size(18.dp))
+                Column {
+                  Text("الاسم الكامل المعتمد:", fontSize = 10.sp, color = TextSecondary)
+                  Text(lawyer.getFullDisplayName(), fontWeight = FontWeight.Bold, fontSize = 13.sp, color = TextPrimary)
+                }
+              }
+
+              Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Default.Phone, contentDescription = null, tint = NavyPrimary, modifier = Modifier.size(18.dp))
+                Column {
+                  Text("رقم الهاتف المباشر والواتساب:", fontSize = 10.sp, color = TextSecondary)
+                  Text(lawyer.phone, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = TextPrimary)
+                }
+              }
+
+              Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Default.LocationOn, contentDescription = null, tint = CrimsonError, modifier = Modifier.size(18.dp))
+                Column {
+                  Text("عنوان المكتب المعتمد:", fontSize = 10.sp, color = TextSecondary)
+                  Text(lawyer.officeAddressManually, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextPrimary)
+                }
+              }
+
+              if (lawyer.officeLatitude != null && lawyer.officeLongitude != null) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                  Icon(Icons.Default.Map, contentDescription = null, tint = GoldDark, modifier = Modifier.size(18.dp))
+                  Column {
+                    Text("الموقع الجغرافي للمكتب (GPS):", fontSize = 10.sp, color = TextSecondary)
+                    Text(
+                      "خط العرض: ${String.format(java.util.Locale.US, "%.4f", lawyer.officeLatitude)} • خط الطول: ${String.format(java.util.Locale.US, "%.4f", lawyer.officeLongitude)}",
+                      fontSize = 11.sp,
+                      fontWeight = FontWeight.SemiBold,
+                      color = NavyPrimary
+                    )
+                  }
+                }
+              }
+            }
+          }
+        } else {
+          // Privacy protection note before agreement
+          Surface(
+            color = NavyPrimary.copy(alpha = 0.05f),
+            shape = RoundedCornerShape(12.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, GoldSecondary.copy(alpha = 0.4f)),
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Row(
+              modifier = Modifier.padding(14.dp),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+              Icon(Icons.Default.Lock, contentDescription = null, tint = GoldDark, modifier = Modifier.size(22.dp))
+              Column {
+                Text(
+                  text = "سياسة حماية الخصوصية للمحامي",
+                  fontWeight = FontWeight.Bold,
+                  fontSize = 12.sp,
+                  color = NavyDark
+                )
+                Text(
+                  text = "يظهر للعميل اللقب والتخصص والنبذة التعريفية فقط، وسيتم إظهار الاسم الكامل ورقم الهاتف وعنوان المكتب والموقع الجغرافي فور قبول العرض والاتفاق الرسمي.",
+                  fontSize = 11.sp,
+                  color = TextSecondary,
+                  lineHeight = 16.sp
+                )
+              }
             }
           }
         }

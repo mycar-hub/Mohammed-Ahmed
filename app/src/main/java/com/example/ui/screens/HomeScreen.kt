@@ -46,7 +46,12 @@ fun HomeScreen(
   onLawyerClick: (String) -> Unit,
   onBrowseLawyersClick: () -> Unit,
   onEscrowClick: () -> Unit,
-  onAdminClick: (() -> Unit)? = null
+  onTrackerClick: (() -> Unit)? = null,
+  onAdminClick: (() -> Unit)? = null,
+  isLawyerAvailable: Boolean = true,
+  onToggleLawyerAvailability: ((Boolean) -> Unit)? = null,
+  onNavigateToLawyerRequests: (() -> Unit)? = null,
+  onSimulateIncomingRequest: (() -> Unit)? = null
 ) {
   val isLawyer = currentUser.role == UserRole.LAWYER
   val isAdmin = currentUser.role == UserRole.ADMIN
@@ -261,8 +266,110 @@ fun HomeScreen(
       }
     }
 
-    // 1.5 Dedicated Lawyer Geographic Jurisdiction Banner (Strict Scope)
+    // 1.5 Dedicated Lawyer Availability & Status Card (Uber/Careem style)
     if (isLawyer) {
+      item {
+        Card(
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+          shape = RoundedCornerShape(18.dp),
+          colors = CardDefaults.cardColors(
+            containerColor = if (isLawyerAvailable) NavyPrimary else Color(0xFF232730)
+          ),
+          elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+          border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (isLawyerAvailable) EmeraldSuccess.copy(alpha = 0.5f) else Color.Gray.copy(alpha = 0.4f)
+          )
+        ) {
+          Column(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+          ) {
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.SpaceBetween,
+              verticalAlignment = Alignment.CenterVertically
+            ) {
+              Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+              ) {
+                Box(
+                  modifier = Modifier
+                    .size(14.dp)
+                    .clip(CircleShape)
+                    .background(if (isLawyerAvailable) EmeraldSuccess else CrimsonError)
+                )
+                Column {
+                  Text(
+                    text = if (isLawyerAvailable) "أنت مـتـاح لتلقي الطلبات (متصل)" else "أنت مـتـوقـف عن تلقي الطلبات",
+                    color = Color.White,
+                    fontSize = 14.5.sp,
+                    fontWeight = FontWeight.Bold
+                  )
+                  Text(
+                    text = if (isLawyerAvailable)
+                      "منبه الـ 20 ثانية نشط عند وصول طلب مطابق لنطاقك"
+                    else
+                      "لن تصلك إشعارات بالطلبات الفورية حتى تصبح متاحاً",
+                    color = if (isLawyerAvailable) EmeraldSuccess else Color.White.copy(alpha = 0.7f),
+                    fontSize = 11.sp
+                  )
+                }
+              }
+
+              // زر متاح أو متوقف
+              Switch(
+                checked = isLawyerAvailable,
+                onCheckedChange = { onToggleLawyerAvailability?.invoke(it) },
+                colors = SwitchDefaults.colors(
+                  checkedThumbColor = Color.White,
+                  checkedTrackColor = EmeraldSuccess,
+                  uncheckedThumbColor = Color.LightGray,
+                  uncheckedTrackColor = Color.DarkGray
+                )
+              )
+            }
+
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+              Button(
+                onClick = { onNavigateToLawyerRequests?.invoke() },
+                colors = ButtonDefaults.buttonColors(
+                  containerColor = GoldSecondary,
+                  contentColor = NavyDark
+                ),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.weight(1f)
+              ) {
+                Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("شاشة الطلبات الفورية", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+              }
+
+              OutlinedButton(
+                onClick = { onSimulateIncomingRequest?.invoke() },
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                border = androidx.compose.foundation.BorderStroke(1.dp, GoldLight.copy(alpha = 0.5f)),
+                shape = RoundedCornerShape(10.dp),
+                enabled = isLawyerAvailable,
+                modifier = Modifier.weight(1f)
+              ) {
+                Icon(Icons.Default.Campaign, contentDescription = null, modifier = Modifier.size(15.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("محاكاة طلب (20 ث)", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+              }
+            }
+          }
+        }
+      }
+
       item {
         Surface(
           color = NavyContainer,
@@ -416,6 +523,75 @@ fun HomeScreen(
       }
     }
 
+    // 2.5 Request Status Tracker Quick Access Banner
+    item {
+      Surface(
+        color = NavyContainer,
+        shape = RoundedCornerShape(16.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, GoldSecondary.copy(alpha = 0.4f)),
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(horizontal = 16.dp)
+          .clickable { onTrackerClick?.invoke() }
+      ) {
+        Row(
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(12.dp),
+          modifier = Modifier.padding(14.dp)
+        ) {
+          Box(
+            modifier = Modifier
+              .size(42.dp)
+              .clip(CircleShape)
+              .background(GoldSecondary.copy(alpha = 0.2f)),
+            contentAlignment = Alignment.Center
+          ) {
+            Icon(
+              imageVector = Icons.Default.Timeline,
+              contentDescription = "Tracker",
+              tint = GoldSecondary,
+              modifier = Modifier.size(24.dp)
+            )
+          }
+
+          Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+              Text(
+                text = "تتبع مسار وحالة القضايا",
+                color = Color.White,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold
+              )
+              Surface(
+                color = GoldSecondary,
+                shape = RoundedCornerShape(4.dp)
+              ) {
+                Text(
+                  text = "شريط التقدم",
+                  color = NavyDark,
+                  fontSize = 9.sp,
+                  fontWeight = FontWeight.Bold,
+                  modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                )
+              }
+            }
+            Text(
+              text = "تتبع المراحل الخمس للقضية (قيد المراجعة، جاري العمل، تم الانتهاء، نزاع) مع مسار بصري مفصل.",
+              color = GoldLight.copy(alpha = 0.85f),
+              fontSize = 11.sp,
+              lineHeight = 15.sp
+            )
+          }
+
+          Icon(
+            imageVector = Icons.Default.ChevronLeft,
+            contentDescription = "فتح التتبع",
+            tint = GoldSecondary
+          )
+        }
+      }
+    }
+
     // 3. Case Templates Quick Selection Carousel (Available strictly to clients for initiating requests)
     if (currentUser.role == UserRole.CLIENT) {
       item {
@@ -527,7 +703,7 @@ fun HomeScreen(
                     verticalAlignment = Alignment.CenterVertically
                   ) {
                     Text(
-                      text = "الميزانية: ${template.suggestedBudget.toInt()} ج.م",
+                      text = "ابدأ بطلب نموذج موجه",
                       fontSize = 11.sp,
                       fontWeight = FontWeight.Bold,
                       color = NavyPrimary
@@ -753,41 +929,44 @@ fun HomeScreen(
       }
     }
 
-    // Featured Lawyers Section
-    item {
-      Column(
-        modifier = Modifier
-          .fillMaxWidth()
-          .padding(top = 8.dp)
-      ) {
-        Row(
+    // Featured Lawyers Section (فقط للعملاء والإدارة، ملغاة تماماً من شاشات المحامي)
+    if (!isLawyer) {
+      item {
+        Column(
           modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-          horizontalArrangement = Arrangement.SpaceBetween,
-          verticalAlignment = Alignment.CenterVertically
+            .padding(top = 8.dp)
         ) {
-          Text(
-            text = if (isLawyer) "دليل الزملاء المعتمدين بالنقابة" else "نخبة المحامين المعتمدين",
-            color = TextPrimary,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold
-          )
-
-          TextButton(onClick = onBrowseLawyersClick) {
-            Text("عرض الجميع", color = GoldDark, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-          }
-        }
-
-        LazyRow(
-          contentPadding = PaddingValues(horizontal = 16.dp),
-          horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-          items(lawyers.take(5)) { lawyer ->
-            LawyerQuickCard(
-              lawyer = lawyer,
-              onClick = { onLawyerClick(lawyer.id) }
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+          ) {
+            Text(
+              text = "نخبة المحامين المعتمدين",
+              color = TextPrimary,
+              fontSize = 16.sp,
+              fontWeight = FontWeight.Bold
             )
+
+            TextButton(onClick = onBrowseLawyersClick) {
+              Text("عرض الجميع", color = GoldDark, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+          }
+
+          LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+          ) {
+            items(lawyers.take(5)) { lawyer ->
+              LawyerQuickCard(
+                lawyer = lawyer,
+                isClient = currentUser.role == UserRole.CLIENT,
+                onClick = { onLawyerClick(lawyer.id) }
+              )
+            }
           }
         }
       }
@@ -879,12 +1058,18 @@ fun RequestCardItem(
           }
         }
 
-        Text(
-          text = "${request.budgetAmount.toInt()} ج.م",
-          color = NavyPrimary,
-          fontSize = 14.sp,
-          fontWeight = FontWeight.Bold
-        )
+        Surface(
+          color = NavyContainer.copy(alpha = 0.15f),
+          shape = RoundedCornerShape(6.dp)
+        ) {
+          Text(
+            text = request.urgency.labelAr,
+            color = NavyPrimary,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+          )
+        }
       }
     }
   }
@@ -893,8 +1078,11 @@ fun RequestCardItem(
 @Composable
 fun LawyerQuickCard(
   lawyer: Lawyer,
+  isClient: Boolean = true,
   onClick: () -> Unit
 ) {
+  val displayName = if (isClient) lawyer.getMaskedDisplayName() else lawyer.getFullDisplayName()
+
   Surface(
     color = CreamSurface,
     shape = RoundedCornerShape(16.dp),
@@ -928,7 +1116,7 @@ fun LawyerQuickCard(
         Column {
           Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-              text = lawyer.name,
+              text = displayName,
               color = TextPrimary,
               fontSize = 13.sp,
               fontWeight = FontWeight.Bold,
@@ -966,11 +1154,23 @@ fun LawyerQuickCard(
 
       Text(
         text = lawyer.specialization.titleAr,
-        color = TextSecondary,
-        fontSize = 10.5.sp,
+        color = NavyPrimary,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 11.sp,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis
       )
+
+      if (lawyer.bio.isNotBlank()) {
+        Text(
+          text = lawyer.bio,
+          color = TextSecondary,
+          fontSize = 10.sp,
+          maxLines = 2,
+          overflow = TextOverflow.Ellipsis,
+          lineHeight = 13.sp
+        )
+      }
 
       Row(
         modifier = Modifier.fillMaxWidth(),

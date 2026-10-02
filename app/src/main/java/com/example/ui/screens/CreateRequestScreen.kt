@@ -64,9 +64,6 @@ fun CreateRequestScreen(
     )
   }
 
-  var budgetText by remember {
-    mutableStateOf(selectedTemplate?.suggestedBudget?.toInt()?.toString() ?: "5000")
-  }
   var selectedUrgency by remember {
     mutableStateOf(selectedTemplate?.urgency ?: RequestUrgency.NORMAL)
   }
@@ -83,7 +80,6 @@ fun CreateRequestScreen(
     title = template.defaultTitle
     selectedCategory = template.category
     description = template.detailedDescriptionTemplate
-    budgetText = template.suggestedBudget.toInt().toString()
     selectedUrgency = template.urgency
     selectedGovernorate = template.defaultGovernorate
     selectedDistrict = template.defaultDistrict
@@ -137,7 +133,7 @@ fun CreateRequestScreen(
         ) {
           Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = GoldDark)
           Text(
-            text = "طرح الطلب مجاني تماماً. ستصلك عروض أسعار تفصيلية (أتعاب المحامي + المصاريف القضائية + نسبة المنصة)، مع تحديد درجات القيد (ابتدائي / استئناف / نقض)، ولن يتم خصم أي مبالغ إلا بعد موافقتك الصريحة وإيداع المبلغ في محفظة الضمان.",
+            text = "طرح الطلب مجاني تماماً. يقدم المحامون المقيدون عروض أتعابهم القضائية مباشرة، وتتولى المنصة حساب رسوم الخدمة وإضافتها تلقائياً للإجمالي، ولا يتم سداد أي مبالغ إلا بعد موافقتك الصريحة على العرض الأنسب.",
             color = GoldOnContainer,
             fontSize = 12.sp,
             lineHeight = 17.sp
@@ -203,7 +199,7 @@ fun CreateRequestScreen(
                   }
                   Spacer(modifier = Modifier.height(3.dp))
                   Text(
-                    text = "متوسط الأتعاب: ${template.estimatedBudgetRange}",
+                    text = "الاختصاص: ${template.defaultCourtJurisdiction}",
                     color = if (isSelected) GoldLight else TextSecondary,
                     fontSize = 10.sp
                   )
@@ -529,43 +525,39 @@ fun CreateRequestScreen(
         }
       }
 
-      // 7. Budget & Urgency
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+      // 7. Urgency (درجة الأهمية والاستعجال)
+      Card(
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = CreamSurface),
+        border = androidx.compose.foundation.BorderStroke(1.dp, BorderSubtle),
+        modifier = Modifier.fillMaxWidth()
       ) {
-        Column(modifier = Modifier.weight(1f)) {
-          Text("الميزانية التقديرية (ج.م)", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.adaptiveTextPrimary)
-          Spacer(modifier = Modifier.height(6.dp))
-          OutlinedTextField(
-            value = budgetText,
-            onValueChange = { budgetText = it },
-            placeholder = { Text("مثال: 5000", fontSize = 13.sp) },
-            shape = RoundedCornerShape(12.dp),
-            colors = maitreTextFieldColors()
-          )
-        }
-
-        Column(modifier = Modifier.weight(1.2f)) {
-          Text("درجة الأهمية والاستعجال", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.adaptiveTextPrimary)
-          Spacer(modifier = Modifier.height(6.dp))
-          Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(
+          modifier = Modifier.padding(14.dp),
+          verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+          Text("درجة الأهمية والاستعجال القضائي", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.adaptiveTextPrimary)
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+          ) {
             RequestUrgency.values().forEach { urgency ->
               Surface(
                 color = if (selectedUrgency == urgency) NavyPrimary else MaterialTheme.adaptiveSurface,
                 shape = RoundedCornerShape(8.dp),
                 border = if (selectedUrgency == urgency) null else androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.adaptiveBorder),
                 modifier = Modifier
-                  .fillMaxWidth()
+                  .weight(1f)
                   .clip(RoundedCornerShape(8.dp))
                   .clickable { selectedUrgency = urgency }
               ) {
                 Text(
                   text = urgency.labelAr,
+                  textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                   color = if (selectedUrgency == urgency) Color.White else MaterialTheme.adaptiveTextPrimary,
                   fontSize = 11.sp,
                   fontWeight = if (selectedUrgency == urgency) FontWeight.Bold else FontWeight.Normal,
-                  modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                  modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp)
                 )
               }
             }
@@ -597,7 +589,7 @@ fun CreateRequestScreen(
             showError = true
             return@Button
           }
-          val budget = budgetText.toDoubleOrNull() ?: 2000.0
+          val budget = 0.0
           showError = false
 
           val finalLocation = GeoLocation(
