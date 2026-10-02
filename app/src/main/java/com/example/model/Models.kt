@@ -162,17 +162,25 @@ data class UserProfile(
   val nationalIdCardBackUri: String? = null,
   val barCardFrontUri: String? = null,
   val barCardBackUri: String? = null,
-  val rejectionReason: String? = null
+  val rejectionReason: String? = null,
+  val isOfficeLocationActivated: Boolean = true, // تفعيل واعتماد الموقع الرسمي للمكتب
+  val officeLocationPostponed: Boolean = false // تأجيل تحديد الموقع لحين الاعتماد
 ) {
   fun isWithinLawyerJurisdiction(requestCity: String, courtLocation: GeoLocation?): Boolean {
     if (role != UserRole.LAWYER) return true
-    if (selectedGovernorates.any { it.trim().equals(requestCity.trim(), ignoreCase = true) }) return true
-    val matchesReqCity = requestCity.trim().equals(assignedGovernorate.trim(), ignoreCase = true)
-    val matchesCourtCity = courtLocation != null && (
-      selectedGovernorates.any { it.trim().equals(courtLocation.city.trim(), ignoreCase = true) } ||
-      courtLocation.city.trim().equals(assignedGovernorate.trim(), ignoreCase = true)
-    )
-    return matchesReqCity || matchesCourtCity
+    val allGovs = (listOf(assignedGovernorate) + selectedGovernorates).filter { it.isNotBlank() }
+    val cleanReqCity = requestCity.trim()
+    if (allGovs.any { it.trim().equals(cleanReqCity, ignoreCase = true) }) return true
+    if (courtLocation != null) {
+      val cleanCourtCity = courtLocation.city.trim()
+      if (allGovs.any { it.trim().equals(cleanCourtCity, ignoreCase = true) }) return true
+    }
+    return false
+  }
+
+  fun canAcceptRequests(): Boolean {
+    if (role != UserRole.LAWYER) return true
+    return isOfficeLocationActivated && !officeAddressManually.isNullOrBlank()
   }
 }
 
@@ -913,13 +921,13 @@ object CaseTemplates {
     ),
     CaseTemplate(
       id = "template_niyaba_attendance",
-      titleAr = "طلب محامي للحضور أمام النيابة",
+      titleAr = "طلب حضور أمام النيابة العامة",
       category = RequestCategory.CRIMINAL_FINANCIAL,
       defaultTitle = "حضور فوري وتحقيق عاجل مع الموكل أمام النيابة العامة",
       shortDescription = "تمثيل قانوني عاجل وحضور جلسة التحقيق الرسمية بالنيابة العامة لضمان حقوق الموكل",
       detailedDescriptionTemplate = "المطلوب بشكل عاجل: انتقال وحضور محامٍ معتمد فورياً أمام النيابة العامة بخصوص المحضر وقسم الشرطة المختص، لحضور استجواب الموكل والاطلاع على الأوراق، وتقديم طلب إخلاء السبيل بضمان مالي أو شخصي، وتقديم الدفوع القانونية والمذكرات اللازمة.",
       suggestedBudget = 5000.0,
-      estimatedBudgetRange = "4,000 - 8,000 ج.م",
+      estimatedBudgetRange = "3,500 - 7,000 ج.م",
       urgency = RequestUrgency.URGENT,
       requiredDocuments = listOf("رقم المحضر / القضية وتاريخ الواقعة", "اسم النيابة العامة أو قسم الشرطة المختص", "توكيل قضايا خاص أو إثبات وكالة بمحضر الجلسة"),
       recommendedBarDegree = LawyerBarDegree.APPEAL,
@@ -928,6 +936,60 @@ object CaseTemplates {
       locationHintAr = "حدد بدقة مكان الواقعة وقسم الشرطة أو النيابة (مثال: الجيزة ➔ الدقي أو الحوامدية) لتمكين المحامي من سرعة الانتقال وتقدير مصاريف الحضور بدقة.",
       defaultGovernorate = "الجيزة",
       defaultDistrict = "الدقي"
+    ),
+    CaseTemplate(
+      id = "template_court_hearing_urgent",
+      titleAr = "طلب حضور جلسة محكمة اليوم",
+      category = RequestCategory.CRIMINAL_FINANCIAL,
+      defaultTitle = "حضور عاجل ومرافعة بجلسة المحكمة المنعقدة اليوم",
+      shortDescription = "تمثيل قانوني فوري وإثبات حضور ودفاع بجلسة اليوم لنظر الدعوى القضائية",
+      detailedDescriptionTemplate = "المطلوب فوراً: حضور محامٍ مرخص بجلسة المحكمة المنعقدة اليوم لإثبات الحضور، والاطلاع على أوراق الدعوى، وإبداء الطلبات والدفوع القانونية اللازمة، أو طلب أجل للاطلاع وتقديم المستندات لمنع صدور حكم غيابي أو تفويت المواعيد الإجرائية.",
+      suggestedBudget = 4000.0,
+      estimatedBudgetRange = "3,000 - 6,000 ج.م",
+      urgency = RequestUrgency.URGENT,
+      requiredDocuments = listOf("رقم الدائرة ورقم القضية / الرول", "اسم المحكمة وقاعة الانعقاد", "صورة بطاقة الرقم القومي والتوكيل"),
+      recommendedBarDegree = LawyerBarDegree.APPEAL,
+      defaultCourtJurisdiction = "مجمع محاكم شمال الجيزة (شارع السودان)",
+      locationLabelTitle = "مقر المحكمة والدائرة المنعقدة",
+      locationHintAr = "حدد المحكمة ومقر انعقاد الجلسة بالضبط لسرعة وصول أقرب محامٍ متاح في النطاق.",
+      defaultGovernorate = "الجيزة",
+      defaultDistrict = "الدقي"
+    ),
+    CaseTemplate(
+      id = "template_police_station_urgent",
+      titleAr = "انتقال فوري لقسم الشرطة",
+      category = RequestCategory.CRIMINAL_FINANCIAL,
+      defaultTitle = "حضور ومتابعة عاجلة بمحضر قسم الشرطة والإشراف على الإجراءات",
+      shortDescription = "انتقال فوري لقسم الشرطة لحضور تحرير المحضر وضمان السلامة القانونية للطرفين",
+      detailedDescriptionTemplate = "المطلوب بشكل فوري: انتقال محامٍ لقسم الشرطة لحضور سماع أقوال الموكل أو تحرير محضر إثبات حالة أو جنحة، ومتابعة قيد المحضر وإرساله للعرض الصباحي على النيابة المختصة، وسداد الكفالة إن وجدت.",
+      suggestedBudget = 3000.0,
+      estimatedBudgetRange = "2,500 - 5,000 ج.م",
+      urgency = RequestUrgency.URGENT,
+      requiredDocuments = listOf("اسم قسم الشرطة والحي", "موضوع الواقعة أو رقم المحضر إن وجد"),
+      recommendedBarDegree = LawyerBarDegree.PRIMARY,
+      defaultCourtJurisdiction = "قسم شرطة قصر النيل • نيابة قصر النيل",
+      locationLabelTitle = "مقر قسم الشرطة ومكان الواقعة",
+      locationHintAr = "حدد القسم التابع لمكان الواقعة لسرعة التوجه والتواجد.",
+      defaultGovernorate = "القاهرة",
+      defaultDistrict = "وسط البلد"
+    ),
+    CaseTemplate(
+      id = "template_shahr_akary_urgent",
+      titleAr = "مأمورية شهر عقاري وتوثيق عاجلة",
+      category = RequestCategory.CONTRACTS,
+      defaultTitle = "انتقال عاجل للتوثيق بالشهر العقاري ومراجعة العقود والتوكيلات",
+      shortDescription = "حضور وتوثيق فوري لعقود البيع أو إشهار المحررات الرسمية بمأمورية الشهر العقاري",
+      detailedDescriptionTemplate = "المطلوب: مرافقة الموكل لمأمورية الشهر العقاري والتوثيق لمراجعة صحة الصياغة، والتحقق من سلسلة التوكيلات والأهلية القانونية، وتوثيق المحرر الرسمي فوراً وحمايته من أي عيوب شكلية أو موضوعية.",
+      suggestedBudget = 2500.0,
+      estimatedBudgetRange = "2,000 - 4,000 ج.م",
+      urgency = RequestUrgency.URGENT,
+      requiredDocuments = listOf("أصل بطاقات الرقم القومي للأطراف", "مسودة العقد أو المحرر المراد توثيقه", "شهادة سلبية أو كشف عقاري إن وجد"),
+      recommendedBarDegree = LawyerBarDegree.PRIMARY,
+      defaultCourtJurisdiction = "مأمورية الشهر العقاري بمصر الجديدة",
+      locationLabelTitle = "مقر مأمورية الشهر العقاري والتوثيق",
+      locationHintAr = "حدد مأمورية الشهر العقاري وموقع التوثيق لسرعة التنسيق.",
+      defaultGovernorate = "القاهرة",
+      defaultDistrict = "مصر الجديدة"
     )
   )
 }

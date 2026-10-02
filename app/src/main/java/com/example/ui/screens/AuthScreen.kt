@@ -140,6 +140,7 @@ fun AuthScreen(
   var lawyerLongitude by remember { mutableStateOf<Double?>(31.2357) }
   var lawyerLocationCaptured by remember { mutableStateOf(true) }
   var lawyerLocationAddressDescription by remember { mutableStateOf("ميدان التحرير / قصر النيل، وسط القاهرة (30.0444, 31.2357)") }
+  var lawyerPostponeOfficeLocation by remember { mutableStateOf(false) }
   var lawyerPhone by remember { mutableStateOf("01198765432") }
   var lawyerEmail by remember { mutableStateOf("sameh.askalani@law.eg") }
   var lawyerFirmName by remember { mutableStateOf("مجموعة العسقلاني للمحاماة والاستشارات") }
@@ -525,53 +526,77 @@ fun AuthScreen(
           // LOGIN MODE
           // =========================================================================
           if (isLoginMode) {
-            // Google Account Sign-In Button (Prominent)
-            Surface(
-              modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .clickable {
-                  showGoogleAccountPicker = true
-                },
-              color = Color.White,
-              shape = RoundedCornerShape(12.dp),
-              border = androidx.compose.foundation.BorderStroke(1.2.dp, BorderSubtle),
-              shadowElevation = 2.dp
-            ) {
+            // Google Account Sign-In Button (Only for Clients - Disabled for Lawyers)
+            if (selectedRole == UserRole.CLIENT) {
+              Surface(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .height(48.dp)
+                  .clip(RoundedCornerShape(12.dp))
+                  .clickable {
+                    showGoogleAccountPicker = true
+                  },
+                color = Color.White,
+                shape = RoundedCornerShape(12.dp),
+                border = androidx.compose.foundation.BorderStroke(1.2.dp, BorderSubtle),
+                shadowElevation = 2.dp
+              ) {
+                Row(
+                  modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 14.dp),
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.Center
+                ) {
+                  GoogleLogoIcon(modifier = Modifier.size(20.dp))
+                  Spacer(modifier = Modifier.width(10.dp))
+                  Text(
+                    "المتابعة وتسجيل الدخول بحساب Google",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    color = NavyDark
+                  )
+                }
+              }
+
+              // Separator
               Row(
                 modifier = Modifier
-                  .fillMaxSize()
-                  .padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
+                  .fillMaxWidth()
+                  .padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
               ) {
-                GoogleLogoIcon(modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.width(10.dp))
+                Divider(modifier = Modifier.weight(1f), color = BorderSubtle)
                 Text(
-                  "المتابعة وتسجيل الدخول بحساب Google",
-                  fontWeight = FontWeight.Bold,
-                  fontSize = 13.sp,
-                  color = NavyDark
+                  text = "أو عبر البريد ورقم الهاتف",
+                  fontSize = 10.5.sp,
+                  color = TextMuted,
+                  modifier = Modifier.padding(horizontal = 10.dp)
                 )
+                Divider(modifier = Modifier.weight(1f), color = BorderSubtle)
               }
-            }
-
-            // Separator
-            Row(
-              modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 2.dp),
-              verticalAlignment = Alignment.CenterVertically
-            ) {
-              Divider(modifier = Modifier.weight(1f), color = BorderSubtle)
-              Text(
-                text = "أو عبر البريد ورقم الهاتف",
-                fontSize = 10.5.sp,
-                color = TextMuted,
-                modifier = Modifier.padding(horizontal = 10.dp)
-              )
-              Divider(modifier = Modifier.weight(1f), color = BorderSubtle)
+            } else {
+              // Lawyer Notice
+              Surface(
+                color = NavyDark,
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth()
+              ) {
+                Row(
+                  modifier = Modifier.padding(10.dp),
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                  Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = EmeraldSuccess, modifier = Modifier.size(18.dp))
+                  Text(
+                    text = "دخول المحامين مخصص عبر رقم الهاتف المسجل والهوية النقابية لضمان الخصوصية والتحقق الرقمي.",
+                    color = GoldLight,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    lineHeight = 15.sp
+                  )
+                }
+              }
             }
 
             OutlinedTextField(
@@ -1141,26 +1166,28 @@ fun AuthScreen(
               }
             } else {
               // -------------------------------------------------------------
-              // LAWYER REGISTRATION WIZARD (5 STEPS)
+              // LAWYER REGISTRATION WIZARD (6 STEPS)
               // -------------------------------------------------------------
               val lawyerStepTitles = listOf(
-                "البيانات المهنية والمكتب",
+                "البيانات المهنية والتواصل",
                 "القيد بنقابة المحامين والدرجة",
-                "نطاق العمل القضائي والمحاكم",
+                "نطاق العمل والمحافظات والمحاكم",
                 "رفع الوثائق الرسمية (KYC)",
-                "المراجعة وشروط الاستخدام"
+                "المراجعة وميثاق شرف المهنة",
+                "الموقع الجغرافي للمكتب واعتماده"
               )
               val lawyerStepSubtitles = listOf(
-                "الاسم الرباعي الرسمي، اسم المكتب ومقره، وبيانات التواصل والخبرة",
-                "رقم القيد، درجة المحاماة الحالية، والنقابة الفرعية والمحافظة",
-                "تحديد درجات وتصنيفات القضايا وأماكن الممارسة القضائية والمحاكم",
+                "الاسم الرباعي الرسمي، اسم المكتب، والخبرة وبيانات الاتصال",
+                "رقم القيد، درجة المحاماة الحالية، والنقابة الفرعية والمحافظة الأساسية",
+                "تحديد درجات وتصنيفات القضايا والمحافظات المشمولة لتوسيع نطاق العمل",
                 "رفع بطاقة الرقم القومي وكارنيه نقابة المحامين (الوجهين وش وظهر)",
-                "مراجعة الملف والموافقة على شروط الاستخدام وميثاق شرف المهنة"
+                "مراجعة الملف والموافقة على شروط الاستخدام وميثاق شرف المهنة",
+                "تسجيل عنوان المكتب يدوياً مع إمكانية إضافة نقطة الموقع أو تأجيلها"
               )
 
               RegistrationWizardHeader(
                 currentStep = lawyerRegistrationStep,
-                totalSteps = 5,
+                totalSteps = 6,
                 stepTitle = lawyerStepTitles[lawyerRegistrationStep],
                 stepSubtitle = lawyerStepSubtitles[lawyerRegistrationStep],
                 accentColor = EmeraldSuccess
@@ -1252,103 +1279,10 @@ fun AuthScreen(
                     colors = maitreTextFieldColors()
                   )
 
-                  // Manual Office Address (تحديد عنوان المكتب يدوياً)
-                  OutlinedTextField(
-                    value = lawyerOfficeAddressManually,
-                    onValueChange = { lawyerOfficeAddressManually = it },
-                    label = { Text("عنوان المكتب بالتفصيل يدوياً *") },
-                    placeholder = { Text("مثال: 15 شارع شريف، وسط البلد، عمارة التأمين، الدور 4") },
-                    leadingIcon = { Icon(Icons.Default.Place, contentDescription = null, tint = CrimsonError) },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = maitreTextFieldColors()
-                  )
-
-                  // GPS / Location Picker Box (أخذ لوكيشن للموقع)
-                  Surface(
-                    color = CreamSurfaceVariant,
-                    shape = RoundedCornerShape(10.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, if (lawyerLocationCaptured) EmeraldSuccess else GoldSecondary),
-                    modifier = Modifier.fillMaxWidth()
-                  ) {
-                    Column(
-                      modifier = Modifier.padding(12.dp),
-                      verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                      Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                      ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                          Icon(
-                            Icons.Default.MyLocation,
-                            contentDescription = null,
-                            tint = if (lawyerLocationCaptured) EmeraldSuccess else GoldDark,
-                            modifier = Modifier.size(18.dp)
-                          )
-                          Text(
-                            text = "الموقع الجغرافي للمكتب (GPS Location):",
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = NavyPrimary
-                          )
-                        }
-                        Surface(
-                          color = if (lawyerLocationCaptured) EmeraldContainer else GoldContainer,
-                          shape = RoundedCornerShape(6.dp)
-                        ) {
-                          Text(
-                            text = if (lawyerLocationCaptured) "تم التقاط الإحداثيات ✓" else "لم يحدد بعد",
-                            color = if (lawyerLocationCaptured) EmeraldSuccess else GoldDark,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                          )
-                        }
-                      }
-
-                      Text(
-                        text = if (lawyerLocationCaptured) {
-                          "📍 الإحداثيات المسجلة: (${String.format(java.util.Locale.US, "%.4f", lawyerLatitude ?: 30.0444)}, ${String.format(java.util.Locale.US, "%.4f", lawyerLongitude ?: 31.2357)})\n$lawyerLocationAddressDescription"
-                        } else {
-                          "اضغط لالتقاط موقع المكتب بدقة عبر GPS لتسهيل وصول الموكل بعد التعاقد."
-                        },
-                        fontSize = 10.5.sp,
-                        color = TextSecondary,
-                        lineHeight = 15.sp
-                      )
-
-                      Button(
-                        onClick = {
-                          // Simulate GPS lock to lawyer's current office location in Egypt
-                          lawyerLatitude = 30.0444
-                          lawyerLongitude = 31.2357
-                          lawyerLocationCaptured = true
-                          lawyerLocationAddressDescription = "وسط القاهرة - قصر النيل / شارع شريف (تم التحديد بدقة GPS)"
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                          containerColor = if (lawyerLocationCaptured) EmeraldSuccess else NavyPrimary,
-                          contentColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                      ) {
-                        Icon(Icons.Default.GpsFixed, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                          text = if (lawyerLocationCaptured) "إعادة التقاط موقع المكتب الحالي (GPS)" else "أخذ لوكيشن للموقع الآن (GPS)",
-                          fontSize = 11.5.sp,
-                          fontWeight = FontWeight.Bold
-                        )
-                      }
-                    }
-                  }
-
                   OutlinedTextField(
                     value = lawyerFirmName,
                     onValueChange = { lawyerFirmName = it },
-                    label = { Text("اسم مكتب المحاماة / المجموعة القانونية ومقرها") },
+                    label = { Text("اسم مكتب المحاماة / المجموعة القانونية") },
                     leadingIcon = { Icon(Icons.Default.AccountBalance, contentDescription = null, tint = GoldDark) },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp),
@@ -2265,7 +2199,7 @@ fun AuthScreen(
 
                 4 -> {
                   // STEP 5: Review & Terms of Use / Code of Ethics
-                  Text("مراجعة ملف المحامي وشروط الاستخدام:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = NavyPrimary)
+                  Text("مراجعة ملف المحامي وميثاق شرف المهنة:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = NavyPrimary)
 
                   // Summary Card
                   Surface(
@@ -2361,6 +2295,184 @@ fun AuthScreen(
                       }
                     }
                   }
+                }
+
+                5 -> {
+                  // STEP 6: Office Location & Official Workspace Activation (الموقع الجغرافي للمكتب وتفعيله)
+                  Surface(
+                    color = NavyDark,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                  ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                      Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Default.Place, contentDescription = null, tint = GoldSecondary, modifier = Modifier.size(20.dp))
+                        Text("الموقع الجغرافي لمكتب المحاماة:", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                      }
+                      Text(
+                        text = "يتم تسجيل عنوان المكتب بالتفصيل يدوياً، مع إمكانية التقاط نقطة الـ GPS فوراً أو تأجيلها لحين اعتماد ومعاينة المكتب.",
+                        fontSize = 10.sp,
+                        color = GoldLight,
+                        lineHeight = 14.sp
+                      )
+                    }
+                  }
+
+                  // 1. Manual Office Address (إلزامي يدوياً)
+                  OutlinedTextField(
+                    value = lawyerOfficeAddressManually,
+                    onValueChange = { lawyerOfficeAddressManually = it },
+                    label = { Text("عنوان المكتب الرسمي بالتفصيل يدوياً *") },
+                    placeholder = { Text("مثال: 15 شارع شريف، وسط البلد، عمارة التأمين، الدور الرابع، مكتب 42") },
+                    leadingIcon = { Icon(Icons.Default.Place, contentDescription = null, tint = CrimsonError) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    minLines = 2,
+                    colors = maitreTextFieldColors()
+                  )
+
+                  // 2. Options: Pin GPS Location vs Postpone
+                  Surface(
+                    color = CreamSurfaceVariant,
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, BorderSubtle),
+                    modifier = Modifier.fillMaxWidth()
+                  ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                      Text("تحديد موقع المكتب على الخريطة والرادار:", fontWeight = FontWeight.Bold, fontSize = 11.5.sp, color = NavyDark)
+
+                      // Option A: Pin location now
+                      Surface(
+                        color = if (!lawyerPostponeOfficeLocation) EmeraldContainer else MaterialTheme.adaptiveSurfaceVariant,
+                        shape = RoundedCornerShape(10.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, if (!lawyerPostponeOfficeLocation) EmeraldSuccess else MaterialTheme.adaptiveBorder),
+                        modifier = Modifier
+                          .fillMaxWidth()
+                          .clickable { lawyerPostponeOfficeLocation = false }
+                      ) {
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                          Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                          ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                              RadioButton(
+                                selected = !lawyerPostponeOfficeLocation,
+                                onClick = { lawyerPostponeOfficeLocation = false },
+                                colors = RadioButtonDefaults.colors(selectedColor = EmeraldSuccess)
+                              )
+                              Text(
+                                text = "إضافة نقطة الموقع الجغرافي الآن (GPS Pin)",
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (!lawyerPostponeOfficeLocation) NavyDark else MaterialTheme.adaptiveTextPrimary
+                              )
+                            }
+                            if (lawyerLocationCaptured && !lawyerPostponeOfficeLocation) {
+                              Surface(color = EmeraldSuccess, shape = RoundedCornerShape(4.dp)) {
+                                Text("تم التحديد ✓", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                              }
+                            }
+                          }
+
+                          if (!lawyerPostponeOfficeLocation) {
+                            Text(
+                              text = if (lawyerLocationCaptured) {
+                                "📍 الإحداثيات: (${String.format(java.util.Locale.US, "%.4f", lawyerLatitude ?: 30.0444)}, ${String.format(java.util.Locale.US, "%.4f", lawyerLongitude ?: 31.2357)})\n$lawyerLocationAddressDescription"
+                              } else {
+                                "اضغط لالتقاط وتثبيت إحداثيات GPS الخاصة بالمكتب لتسهيل الملاحة والوصول."
+                              },
+                              fontSize = 10.sp,
+                              color = TextSecondary,
+                              lineHeight = 14.sp
+                            )
+
+                            Button(
+                              onClick = {
+                                lawyerLatitude = 30.0444
+                                lawyerLongitude = 31.2357
+                                lawyerLocationCaptured = true
+                                lawyerLocationAddressDescription = "وسط القاهرة - قصر النيل / شارع شريف (تم التحديد بدقة GPS)"
+                              },
+                              colors = ButtonDefaults.buttonColors(
+                                containerColor = if (lawyerLocationCaptured) EmeraldSuccess else NavyPrimary,
+                                contentColor = Color.White
+                              ),
+                              shape = RoundedCornerShape(8.dp),
+                              modifier = Modifier.fillMaxWidth()
+                            ) {
+                              Icon(Icons.Default.GpsFixed, contentDescription = null, modifier = Modifier.size(16.dp))
+                              Spacer(modifier = Modifier.width(6.dp))
+                              Text(
+                                text = if (lawyerLocationCaptured) "إعادة التقاط وتثبيت نقطة الموقع (GPS)" else "التقاط وتثبيت نقطة الموقع على الخريطة (GPS)",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                              )
+                            }
+                          }
+                        }
+                      }
+
+                      // Option B: Postpone location
+                      Surface(
+                        color = if (lawyerPostponeOfficeLocation) GoldContainer else MaterialTheme.adaptiveSurfaceVariant,
+                        shape = RoundedCornerShape(10.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, if (lawyerPostponeOfficeLocation) GoldDark else MaterialTheme.adaptiveBorder),
+                        modifier = Modifier
+                          .fillMaxWidth()
+                          .clickable { lawyerPostponeOfficeLocation = true }
+                      ) {
+                        Row(
+                          modifier = Modifier.padding(10.dp),
+                          verticalAlignment = Alignment.CenterVertically,
+                          horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                          RadioButton(
+                            selected = lawyerPostponeOfficeLocation,
+                            onClick = { lawyerPostponeOfficeLocation = true },
+                            colors = RadioButtonDefaults.colors(selectedColor = GoldDark)
+                          )
+                          Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                              text = "تأجيل إضافة نقطة الموقع لحين مراجعة واعتماد المكتب",
+                              fontSize = 11.sp,
+                              fontWeight = FontWeight.Bold,
+                              color = if (lawyerPostponeOfficeLocation) GoldOnContainer else MaterialTheme.adaptiveTextPrimary
+                            )
+                            Text(
+                              text = "يمكنك تحديد العنوان نصياً الآن وإضافة الإحداثيات وتفعيلها لاحقاً من صفحة الملف الشخصي.",
+                              fontSize = 9.5.sp,
+                              color = MaterialTheme.adaptiveTextSecondary
+                            )
+                          }
+                        }
+                      }
+                    }
+                  }
+
+                  // 3. Prominent Regulatory Warning
+                  Surface(
+                    color = CrimsonContainer.copy(alpha = 0.6f),
+                    shape = RoundedCornerShape(10.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, CrimsonError.copy(alpha = 0.6f)),
+                    modifier = Modifier.fillMaxWidth()
+                  ) {
+                    Row(
+                      modifier = Modifier.padding(10.dp),
+                      verticalAlignment = Alignment.CenterVertically,
+                      horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                      Icon(Icons.Default.WarningAmber, contentDescription = null, tint = CrimsonError, modifier = Modifier.size(20.dp))
+                      Text(
+                        text = "تنبيه نظامي: لا يقبل النظام أو يتيح تقديم عروض على أي طلبات فورية أو قضايا قبل تفعيل واعتماد الموقع الرسمي للمكتب.",
+                        color = CrimsonError,
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = 15.sp
+                      )
+                    }
+                  }
 
                   if (lawyerSubmissionSuccess) {
                     Surface(color = EmeraldContainer, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
@@ -2398,7 +2510,7 @@ fun AuthScreen(
                   }
                 }
 
-                if (lawyerRegistrationStep < 4) {
+                if (lawyerRegistrationStep < 5) {
                   Button(
                     onClick = {
                       if (lawyerRegistrationStep == 0) {
@@ -2421,6 +2533,11 @@ fun AuthScreen(
                           formErrorMessage = "يرجى كتابة الرقم القومي للمحامي (14 رقماً)."
                           return@Button
                         }
+                      } else if (lawyerRegistrationStep == 4) {
+                        if (!lawyerTermsAccepted) {
+                          formErrorMessage = "يجب الموافقة على شروط الاستخدام وميثاق شرف المهنة وسياسة الخصوصية للمتابعة."
+                          return@Button
+                        }
                       }
                       formErrorMessage = null
                       lawyerRegistrationStep++
@@ -2436,11 +2553,11 @@ fun AuthScreen(
                     Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
                   }
                 } else {
-                  // Step 4: Final Lawyer Submit Button
+                  // Step 5: Final Lawyer Submit Button
                   Button(
                     onClick = {
-                      if (!lawyerTermsAccepted) {
-                        formErrorMessage = "يجب الموافقة على شروط الاستخدام وميثاق شرف المهنة وسياسة الخصوصية."
+                      if (lawyerOfficeAddressManually.isBlank()) {
+                        formErrorMessage = "يرجى كتابة العنوان التفصيلي للمكتب يدوياً لإتمام التسجيل."
                         return@Button
                       }
                       if (lawyerFullName.isBlank() || lawyerBarLicenseNumber.isBlank() || lawyerPhone.isBlank()) {
@@ -2482,8 +2599,8 @@ fun AuthScreen(
                         lawyerTitle,
                         lawyerBio,
                         lawyerOfficeAddressManually,
-                        lawyerLatitude,
-                        lawyerLongitude
+                        if (lawyerPostponeOfficeLocation) null else lawyerLatitude,
+                        if (lawyerPostponeOfficeLocation) null else lawyerLongitude
                       )
                       onRegisterSuccess(
                         lawyerFullName,

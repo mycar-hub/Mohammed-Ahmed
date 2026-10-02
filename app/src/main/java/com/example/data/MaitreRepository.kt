@@ -365,8 +365,9 @@ object MaitreRepository {
   val incomingDispatchRequest: StateFlow<ServiceRequest?> = _incomingDispatchRequest.asStateFlow()
 
   fun triggerIncomingDispatchRequest(request: ServiceRequest) {
-    if (_isLawyerAvailable.value && _currentUser.value.role == UserRole.LAWYER) {
-      if (_currentUser.value.isWithinLawyerJurisdiction(request.city, request.courtLocation)) {
+    val lawyer = _currentUser.value
+    if (_isLawyerAvailable.value && lawyer.role == UserRole.LAWYER) {
+      if (lawyer.canAcceptRequests() && lawyer.isWithinLawyerJurisdiction(request.city, request.courtLocation)) {
         _incomingDispatchRequest.value = request
       }
     }
@@ -377,67 +378,106 @@ object MaitreRepository {
   }
 
   /**
-   * قبول فوري ومباشر للطلب من نافذة التنبيه الذكية
+   * تفعيل واعتماد الموقع الجغرافي للمكتب رسمياً لتمكين المحامي من قبول الطلبات
    */
-  fun acceptIncomingDispatchRequest(requestId: String, lawyerFee: Double, note: String = "تم قبول الطلب ومباشرة الإجراءات فوراً عبر التنبيه الذكي"): Result<Bid> {
+  fun activateLawyerOfficeLocation(
+    manualAddress: String,
+    latitude: Double? = 30.0444,
+    longitude: Double? = 31.2357
+  ) {
+    val current = _currentUser.value
+    val updated = current.copy(
+      officeAddressManually = manualAddress,
+      officeAddress = manualAddress,
+      officeLatitude = latitude ?: 30.0444,
+      officeLongitude = longitude ?: 31.2357,
+      isOfficeLocationActivated = true,
+      officeLocationPostponed = false
+    )
+    _currentUser.value = updated
+    _lawyers.value = _lawyers.value.map {
+      if (it.id == current.id) {
+        it.copy(
+          officeAddressManually = manualAddress,
+          officeLatitude = latitude ?: 30.0444,
+          officeLongitude = longitude ?: 31.2357
+        )
+      } else it
+    }
+    addNotification(
+      title = "تم تفعيل واعتماد الموقع الجغرافي للمكتب بنجاح 📍",
+      body = "موقع مكتبك الرسمي مفعل الآن، وأصبحت مؤهلاً لاستقبال وتقديم العروض على كافة الطلبات الفورية في نطاقك الجغرافي.",
+      requestId = null
+    )
+    scope.launch { userPrefs?.saveUserSession(updated) }
+  }
+
+  /**
+   * قبول فوري ومباشر للطلب من نافذة التنبيه الذكية مع تقديم الأتعاب والمصاريف القانونية
+   */
+  fun acceptIncomingDispatchRequest(
+    requestId: String,
+    lawyerFee: Double,
+    legalExpenses: Double = 0.0,
+    note: String = "تم تقديم التسعير (أتعاب + مصاريف قضائية) وقبول الطلب ومباشرة الإجراءات فوراً عبر التنبيه الذكي"
+  ): Result<Bid> {
     _incomingDispatchRequest.value = null
     return addBid(
       requestId = requestId,
       lawyerFee = lawyerFee,
-      legalExpenses = 0.0,
+      legalExpenses = legalExpenses,
       proposedDays = 2,
       proposalNote = note
     )
   }
 
   /**
-   * محاكاة وصول طلب جديد في النطاق الجغرافي للمحامي لاختبار الـ Popup مع الـ Alarm لمدة 20 ثانية
+   * محاكاة وصول طلب جديد في النطاق الجغرافي للمحامي (تسعير مفتوح - العميل يطلب الخدمة فقط)
    */
   fun simulateIncomingRequestForLawyer(): ServiceRequest {
     val currentLawyer = _currentUser.value
-    val gov = currentLawyer.assignedGovernorate.ifBlank { "القاهرة" }
-    val district = currentLawyer.assignedDistrict.ifBlank { "مصر الجديدة" }
-    val court = currentLawyer.assignedCourtJurisdiction.ifBlank { "نيابة مصر الجديدة الجزئية • محكمة مصر الجديدة" }
+    val chosenGov = (listOf(currentLawyer.assignedGovernorate) + currentLawyer.selectedGovernorates)
+      .filter { it.isNotBlank() }
+      .randomOrNull() ?: "الجيزة"
+    val district = if (chosenGov == currentLawyer.assignedGovernorate) currentLawyer.assignedDistrict.ifBlank { "الدقي" } else "المركز الرئيسي"
+    val court = EgyptLocationHelper.getDefaultJurisdiction(chosenGov, district)
 
     val simulatedId = "req_live_${System.currentTimeMillis() % 10000}"
     val sampleTitles = listOf(
       "حضور فوري وتحقيق عاجل مع موكل أمام النيابة العامة",
-      "صياغة مذكرة دفاع عاجلة في جنحة شيك بدون رصيد",
-      "إجراءات مستعجلة لإثبات حالة ومعاينة شقة متنازع عليها",
-      "طلب تمثيل قانوني مستعجل أمام المحكمة الجزئية"
+      "حضور عاجل ومرافعة بجلسة المحكمة المنعقدة اليوم",
+      "انتقال فوري لقسم الشرطة للإشراف على تحرير المحضر وسداد كفالة",
+      "مأمورية شهر عقاري وتوثيق عاجلة لمراجعة عقود بيع رسمية"
     )
     val chosenTitle = sampleTitles.random()
-    val budget = listOf(3500.0, 4500.0, 5000.0, 6500.0, 8000.0).random()
 
     val newReq = ServiceRequest(
       id = simulatedId,
       title = chosenTitle,
       category = RequestCategory.CRIMINAL_FINANCIAL,
-      description = "مطلوب بشكل عاجل انتقال وحضور محامٍ معتمد فورياً أمام النيابة العامة بمقر محكمة $gov دائرة $district للاطلاع على المحضر وإخلاء السبيل بضمان.",
-      city = gov,
-      budgetRange = "${budget.toInt()} ج.م",
-      budgetAmount = budget,
+      description = "مطلوب بشكل عاجل وفوري انتقال وحضور محامٍ معتمد أمام $court بمحافظة $chosenGov دائرة $district. (طلب خدمة عاجلة بدون سعر محدد مسبقاً - التسعير يحدده المحامي).",
+      city = chosenGov,
+      budgetRange = "تسعير مفتوح (يحدده المحامي)",
+      budgetAmount = 0.0,
       urgency = RequestUrgency.URGENT,
       status = RequestStatus.OPEN,
-      clientId = "client_uber_sample",
+      clientId = "client_urgent_sample",
       clientName = "أ. حسام فوزي النجار",
       createdAt = "الآن",
       bidsCount = 0,
       courtLocation = GeoLocation(
-        city = gov,
+        city = chosenGov,
         district = district,
         courtJurisdiction = court,
-        latitude = currentLawyer.officeLatitude ?: 30.0911,
-        longitude = currentLawyer.officeLongitude ?: 31.3253,
-        locationPurpose = "مقر المحكمة ومكان الواقعة",
-        specificLandmark = "بالقرب من مجمع المحاكم الجزئية"
+        latitude = currentLawyer.officeLatitude ?: 30.0131,
+        longitude = currentLawyer.officeLongitude ?: 31.2089,
+        locationPurpose = "مقر النيابة / المحكمة / قسم الشرطة",
+        specificLandmark = "بالقرب من مجمع المحاكم والنيابات"
       )
     )
 
     _requests.value = listOf(newReq) + _requests.value
-    if (_isLawyerAvailable.value && _currentUser.value.role == UserRole.LAWYER) {
-      _incomingDispatchRequest.value = newReq
-    }
+    triggerIncomingDispatchRequest(newReq)
     return newReq
   }
 
@@ -1072,6 +1112,9 @@ object MaitreRepository {
     }
 
     val lawyer = _currentUser.value
+    if (!lawyer.canAcceptRequests()) {
+      return Result.failure(IllegalStateException("لا يمكنك تقديم عروض أو قبول طلبات قبل تفعيل واعتماد الموقع الجغرافي الرسمي لمكتبك."))
+    }
     val targetReq = _requests.value.find { it.id == requestId }
     if (targetReq != null && !lawyer.isWithinLawyerJurisdiction(targetReq.city, targetReq.courtLocation)) {
       return Result.failure(IllegalArgumentException("خارج نطاق الاختصاص الجغرافي المقيد للمحامي (${lawyer.assignedGovernorate} - ${lawyer.assignedDistrict}). المحامي متلقٍ للطلبات في إطاره الجغرافي المحدد مسبقاً فقط."))
@@ -1192,6 +1235,15 @@ object MaitreRepository {
       body = "تم فتح بيانات الاتصال المباشرة وتوليد رمز QR لبدء الخدمة وتوثيق المقابلة.",
       requestId = requestId
     )
+  }
+
+  /**
+   * يرفض العميل عرض السعر المقدم من المحامي
+   */
+  fun rejectBid(bidId: String) {
+    _bids.value = _bids.value.map {
+      if (it.id == bidId) it.copy(status = BidStatus.REJECTED) else it
+    }
   }
 
   /**

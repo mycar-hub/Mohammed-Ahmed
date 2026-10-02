@@ -340,6 +340,7 @@ fun MaitreApp(appPreferences: AppPreferences = AppPreferences()) {
               isAvailable = isLawyerAvailable,
               requests = requests,
               bids = bids,
+              clientFeePercentage = clientPlatformFeePercentage,
               onToggleAvailability = { available ->
                 MaitreRepository.setLawyerAvailable(available)
                 coroutineScope.launch {
@@ -359,12 +360,18 @@ fun MaitreApp(appPreferences: AppPreferences = AppPreferences()) {
                 selectedRequestId = reqId
                 currentRoute = "request_detail"
               },
-              onAcceptRequestQuick = { req ->
-                val result = MaitreRepository.acceptIncomingDispatchRequest(req.id, req.budgetAmount)
-                if (result.isSuccess) {
-                  selectedRequestId = req.id
+              onSubmitBid = { reqId, fee, exp, days, note ->
+                val res = MaitreRepository.addBid(
+                  requestId = reqId,
+                  lawyerFee = fee,
+                  legalExpenses = exp,
+                  proposedDays = days,
+                  proposalNote = note
+                )
+                if (res.isSuccess) {
+                  selectedRequestId = reqId
                   coroutineScope.launch {
-                    snackbarHostState.showSnackbar("تم قبول الطلب فورياً وتقديم عرضك بنجاح!")
+                    snackbarHostState.showSnackbar("تم تقديم عرضك بنجاح وحساب السعر النهائي للعميل!")
                   }
                   currentRoute = "request_detail"
                 }
@@ -849,11 +856,16 @@ fun MaitreApp(appPreferences: AppPreferences = AppPreferences()) {
         val activeReq = incomingDispatchRequest!!
         LawyerDispatchPopup(
           request = activeReq,
-          onAccept = { req ->
-            val acceptRes = MaitreRepository.acceptIncomingDispatchRequest(req.id, req.budgetAmount)
+          clientFeePercentage = clientPlatformFeePercentage,
+          onAccept = { req, lawyerFee, legalExpenses ->
+            val acceptRes = MaitreRepository.acceptIncomingDispatchRequest(
+              requestId = req.id,
+              lawyerFee = lawyerFee,
+              legalExpenses = legalExpenses
+            )
             selectedRequestId = req.id
             coroutineScope.launch {
-              snackbarHostState.showSnackbar("تم قبول الطلب فورياً بنجاح ومباشرة الإجراءات!")
+              snackbarHostState.showSnackbar("تم تقديم عرضك الفوري (${(lawyerFee + legalExpenses).toInt()} ج.م + رسوم المنصة) وإرساله للموكل بنجاح!")
             }
             currentRoute = "request_detail"
           },

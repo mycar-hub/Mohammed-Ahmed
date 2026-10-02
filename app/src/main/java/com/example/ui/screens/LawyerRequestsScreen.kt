@@ -7,9 +7,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
@@ -18,7 +21,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -33,7 +35,7 @@ import com.example.ui.theme.*
 /**
  * شاشة طلبات المحامي الفورية
  * مزودة بزر "متاح أو متوقف" (Available / Offline)
- * مع نظام مطابقة جغرافي ذكي وعرض الطلبات الفورية مثل تطبيقات النقل الذكي
+ * ونظام تسعير الأتعاب والمصاريف القانونية التقديرية وحساب السعر النهائي للعميل
  */
 @Composable
 fun LawyerRequestsScreen(
@@ -41,14 +43,18 @@ fun LawyerRequestsScreen(
   isAvailable: Boolean,
   requests: List<ServiceRequest>,
   bids: List<Bid>,
+  clientFeePercentage: Double = 5.0,
   onToggleAvailability: (Boolean) -> Unit,
   onSimulateIncomingRequest: () -> Unit,
   onRequestClick: (String) -> Unit,
-  onAcceptRequestQuick: (ServiceRequest) -> Unit,
+  onSubmitBid: (requestId: String, lawyerFee: Double, legalExpenses: Double, days: Int, note: String) -> Unit,
   onOpenWorkspace: (String) -> Unit
 ) {
   var selectedTab by remember { mutableIntStateOf(0) } // 0: طلبات واردة في النطاق, 1: عروضي المقدمة, 2: قيد التنفيذ
   var selectedCategory by remember { mutableStateOf<RequestCategory?>(null) }
+
+  // Modal dialog للتسعير الفوري
+  var pricingRequest by remember { mutableStateOf<ServiceRequest?>(null) }
 
   // الطلبات المطابقة للنطاق الجغرافي للمحامي
   val matchingGeographicRequests = requests.filter { req ->
@@ -169,6 +175,21 @@ fun LawyerRequestsScreen(
               color = GoldLight,
               fontSize = 12.sp,
               fontWeight = FontWeight.SemiBold
+            )
+          }
+
+          // توضيح آلية التسعير
+          Surface(
+            color = Color.White.copy(alpha = 0.08f),
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Text(
+              text = "💡 آلية التسعير الذكية: العميل يطلب الخدمة بدون سعر مسبق. تقدم أتعابك ومصاريفك التقديرية، ويحسب النظام السعر النهائي الشامل أتعاب المنصة (${clientFeePercentage.toInt()}%) ليعرضه على العميل للموافقة أو الرفض.",
+              color = Color.White.copy(alpha = 0.85f),
+              fontSize = 10.5.sp,
+              lineHeight = 15.sp,
+              modifier = Modifier.padding(10.dp)
             )
           }
 
@@ -385,15 +406,31 @@ fun LawyerRequestsScreen(
       }
     } else {
       items(displayedRequests, key = { it.id }) { req ->
+        val myBid = bids.find { it.requestId == req.id && (it.lawyerId == currentUser.id || it.lawyerName.contains(currentUser.name)) }
         LawyerRequestOrderCard(
           request = req,
           currentUser = currentUser,
+          myBid = myBid,
+          clientFeePercentage = clientFeePercentage,
           onClick = { onRequestClick(req.id) },
-          onAcceptQuick = { onAcceptRequestQuick(req) },
+          onOpenQuoteDialog = { pricingRequest = req },
           onOpenWorkspace = { onOpenWorkspace(req.id) }
         )
       }
     }
+  }
+
+  // نافذة تسعير الطلب وتقديم الأتعاب والمصاريف القانونية
+  pricingRequest?.let { req ->
+    LawyerQuickPricingDialog(
+      request = req,
+      clientFeePercentage = clientFeePercentage,
+      onDismiss = { pricingRequest = null },
+      onSubmit = { fee, exp, days, note ->
+        onSubmitBid(req.id, fee, exp, days, note)
+        pricingRequest = null
+      }
+    )
   }
 }
 
@@ -404,8 +441,10 @@ fun LawyerRequestsScreen(
 fun LawyerRequestOrderCard(
   request: ServiceRequest,
   currentUser: UserProfile,
+  myBid: Bid?,
+  clientFeePercentage: Double,
   onClick: () -> Unit,
-  onAcceptQuick: () -> Unit,
+  onOpenQuoteDialog: () -> Unit,
   onOpenWorkspace: () -> Unit
 ) {
   Card(
@@ -488,49 +527,226 @@ fun LawyerRequestOrderCard(
 
       Divider(color = MaterialTheme.adaptiveBorder, thickness = 0.8.dp)
 
-      // 4. الأتعاب والإجراءات
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-      ) {
-        Column {
-          Text(
-            text = "الميزانية المقترحة",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 10.5.sp
-          )
-          Text(
-            text = "${request.budgetAmount.toInt()} ج.م",
-            color = EmeraldSuccess,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.ExtraBold
-          )
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-          if (request.status == RequestStatus.OPEN) {
-            Button(
-              onClick = onAcceptQuick,
-              colors = ButtonDefaults.buttonColors(containerColor = EmeraldSuccess, contentColor = Color.White),
-              shape = RoundedCornerShape(10.dp),
-              contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-            ) {
-              Icon(Icons.Default.FlashOn, contentDescription = null, modifier = Modifier.size(15.dp))
-              Spacer(modifier = Modifier.width(4.dp))
-              Text("قبول فوري", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+      // 4. تفاصيل التسعير والإجراءات
+      if (myBid != null) {
+        // المحامي قدّم عرضه بالفعل
+        Surface(
+          color = CreamSurfaceVariant,
+          shape = RoundedCornerShape(10.dp),
+          modifier = Modifier.fillMaxWidth()
+        ) {
+          Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+              Text("أتعابك المقدمة:", fontSize = 11.sp, color = TextSecondary)
+              Text("${myBid.lawyerFee.toInt()} ج.م", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+            }
+            if (myBid.legalExpenses > 0) {
+              Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("المصاريف القانونية التقديرية:", fontSize = 11.sp, color = TextSecondary)
+                Text("${myBid.legalExpenses.toInt()} ج.م", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+              }
+            }
+            Divider(color = BorderSubtle, thickness = 0.6.dp)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+              Text("الإجمالي المعروض للعميل شامل المنصة:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = NavyPrimary)
+              Text("${myBid.grandTotalAmount.toInt()} ج.م", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = NavyPrimary)
             }
           }
+        }
+      } else {
+        // الطلب بانتظار تسعير المحامي
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          Column {
+            Text(
+              text = "حالة التسعير",
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              fontSize = 10.5.sp
+            )
+            Text(
+              text = "تسعير مفتوح (المحامي يحدد)",
+              color = GoldDark,
+              fontSize = 12.sp,
+              fontWeight = FontWeight.Bold
+            )
+          }
 
-          OutlinedButton(
-            onClick = onClick,
-            shape = RoundedCornerShape(10.dp),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-          ) {
-            Text("تفاصيل الطلب", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+          Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (request.status == RequestStatus.OPEN) {
+              Button(
+                onClick = onOpenQuoteDialog,
+                colors = ButtonDefaults.buttonColors(containerColor = EmeraldSuccess, contentColor = Color.White),
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+              ) {
+                Icon(Icons.Default.FlashOn, contentDescription = null, modifier = Modifier.size(15.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("تسعير وتقديم العرض", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+              }
+            }
+
+            OutlinedButton(
+              onClick = onClick,
+              shape = RoundedCornerShape(10.dp),
+              contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+              Text("التفاصيل", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
           }
         }
       }
     }
   }
+}
+
+/**
+ * نافذة تسعير الطلب الفوري وتحديد أتعاب المحامي والمصاريف القضائية
+ */
+@Composable
+fun LawyerQuickPricingDialog(
+  request: ServiceRequest,
+  clientFeePercentage: Double,
+  onDismiss: () -> Unit,
+  onSubmit: (lawyerFee: Double, legalExpenses: Double, days: Int, note: String) -> Unit
+) {
+  var feeInput by remember { mutableStateOf("3000") }
+  var expInput by remember { mutableStateOf("500") }
+  var daysInput by remember { mutableStateOf("3") }
+  var noteInput by remember { mutableStateOf("") }
+
+  val feeVal = feeInput.toDoubleOrNull() ?: 0.0
+  val expVal = expInput.toDoubleOrNull() ?: 0.0
+  val baseTotal = feeVal + expVal
+  val platformFeeAmount = if (clientFeePercentage > 0.0) baseTotal * (clientFeePercentage / 100.0) else 0.0
+  val grandTotalAmount = baseTotal + platformFeeAmount
+
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    title = {
+      Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Icon(Icons.Default.Calculate, contentDescription = null, tint = NavyPrimary)
+        Text("تسعير وتقديم العرض للطلب", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+      }
+    },
+    text = {
+      Column(
+        modifier = Modifier.verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+      ) {
+        Surface(
+          color = CreamSurfaceVariant,
+          shape = RoundedCornerShape(8.dp),
+          modifier = Modifier.fillMaxWidth()
+        ) {
+          Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(text = "القضية: ${request.title}", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = NavyDark)
+            Text(text = "الموكل: ${request.clientName} • ${request.city}", fontSize = 11.sp, color = TextSecondary)
+          }
+        }
+
+        // 1. سعر الأتعاب
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+          Text("1. سعر الأتعاب المهنية (ج.م) *", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.adaptiveTextPrimary)
+          OutlinedTextField(
+            value = feeInput,
+            onValueChange = { feeInput = it },
+            placeholder = { Text("مثال: 3000") },
+            shape = RoundedCornerShape(8.dp),
+            colors = maitreTextFieldColors(),
+            modifier = Modifier.fillMaxWidth()
+          )
+          LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            items(listOf(1500, 2500, 3000, 4500, 6000, 8000)) { opt ->
+              Surface(
+                color = if (feeVal.toInt() == opt) GoldSecondary else CreamBackground,
+                shape = RoundedCornerShape(6.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, BorderSubtle),
+                modifier = Modifier.clickable { feeInput = opt.toString() }
+              ) {
+                Text(
+                  text = "$opt ج.م",
+                  color = if (feeVal.toInt() == opt) NavyDark else TextPrimary,
+                  fontSize = 10.sp,
+                  fontWeight = FontWeight.Bold,
+                  modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+              }
+            }
+          }
+        }
+
+        // 2. سعر المصاريف القانونية التقديرية
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+          Text("2. سعر المصاريف القانونية التقديرية (ج.م)", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.adaptiveTextPrimary)
+          Text("رسوم قيد وإيداع، أمانات الخبراء، المعاينة والانتقال (0 إذا لم توجد)", fontSize = 9.5.sp, color = TextMuted)
+          OutlinedTextField(
+            value = expInput,
+            onValueChange = { expInput = it },
+            placeholder = { Text("مثال: 500") },
+            shape = RoundedCornerShape(8.dp),
+            colors = maitreTextFieldColors(),
+            modifier = Modifier.fillMaxWidth()
+          )
+        }
+
+        // 3. مدة التنفيذ
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+          Text("3. مدة التنفيذ المقترحة (أيام)", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.adaptiveTextPrimary)
+          OutlinedTextField(
+            value = daysInput,
+            onValueChange = { daysInput = it },
+            shape = RoundedCornerShape(8.dp),
+            colors = maitreTextFieldColors(),
+            modifier = Modifier.fillMaxWidth()
+          )
+        }
+
+        // 4. الحساب التلقائي الشامل لرسوم المنصة
+        Surface(
+          color = GoldContainer.copy(alpha = 0.6f),
+          shape = RoundedCornerShape(10.dp),
+          border = androidx.compose.foundation.BorderStroke(1.dp, GoldSecondary),
+          modifier = Modifier.fillMaxWidth()
+        ) {
+          Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+              Text("المجموع الأساسي (أتعاب + مصاريف):", fontSize = 11.sp, color = TextPrimary)
+              Text("${baseTotal.toInt()} ج.م", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+              Text("أتعاب المنصة المضافة (${clientFeePercentage.toInt()}%):", fontSize = 11.sp, color = GoldDark)
+              Text("+ ${platformFeeAmount.toInt()} ج.م", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = GoldDark)
+            }
+            Divider(color = GoldSecondary.copy(alpha = 0.5f), thickness = 0.8.dp)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+              Text("السعر النهائي الشامل المعروض للعميل:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = NavyPrimary)
+              Text("${grandTotalAmount.toInt()} ج.م", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = NavyPrimary)
+            }
+          }
+        }
+      }
+    },
+    confirmButton = {
+      Button(
+        onClick = {
+          val fee = feeInput.toDoubleOrNull() ?: 3000.0
+          val exp = expInput.toDoubleOrNull() ?: 0.0
+          val days = daysInput.toIntOrNull() ?: 3
+          val note = if (noteInput.isBlank()) "تم إعداد ودراسة الأتعاب والمصاريف القانونية لمباشرة الطلب فوراً." else noteInput
+          onSubmit(fee, exp, days, note)
+        },
+        colors = ButtonDefaults.buttonColors(containerColor = EmeraldSuccess)
+      ) {
+        Text("إرسال العرض للعميل")
+      }
+    },
+    dismissButton = {
+      TextButton(onClick = onDismiss) {
+        Text("إلغاء")
+      }
+    }
+  )
 }

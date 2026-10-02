@@ -1,6 +1,7 @@
 package com.example.service
 
 import android.content.Context
+import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.Ringtone
 import android.media.RingtoneManager
@@ -15,68 +16,87 @@ import kotlinx.coroutines.*
 /**
  * مدير منبه وتنبيهات استقبال الطلبات الفورية للمحامي
  * (يحاكي منبه تطبيقات النقل الذكي مثل أوبر وكريم وبولت)
+ * يتعامل مع الصوت والاهتزاز بشكل آمن وبدون تسريب موارد أو أخطاء AudioTrack/ToneGenerator
  */
 object DispatchAlarmManager {
 
   private const val TAG = "DispatchAlarmManager"
-  private var isPlaying = false
+  @Volatile private var isPlaying = false
   private var alarmJob: Job? = null
   private var ringtone: Ringtone? = null
   private var toneGenerator: ToneGenerator? = null
+  private val lock = Any()
 
   /**
    * تشغيل المنبه الصوتي ونبضات الاهتزاز معاً
    */
   fun startAlarm(context: Context) {
-    if (isPlaying) return
-    isPlaying = true
+    synchronized(lock) {
+      if (isPlaying) return
+      isPlaying = true
+    }
 
     val appContext = context.applicationContext
 
-    alarmJob = CoroutineScope(Dispatchers.IO).launch {
+    alarmJob = CoroutineScope(Dispatchers.Default).launch {
       try {
-        // 1. تشغيل رنين النظام إن أمكن
+        // 1. تشغيل رنين النظام المخصص للتنبيهات أو المنبه
         try {
-          val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+          val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
             ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
 
           ringtone = RingtoneManager.getRingtone(appContext, alarmUri)?.apply {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-              isLooping = true
+              isLooping = false
             }
             play()
           }
         } catch (e: Exception) {
-          Log.w(TAG, "Ringtone play failed, falling back to ToneGenerator", e)
+          Log.w(TAG, "Ringtone playback handled gracefully", e)
         }
 
-        // 2. إعداد مولد النغمات الاحتياطي / الإضافي لضمان سماع الصوت بوضوح
-        try {
-          toneGenerator = ToneGenerator(AudioManager.STREAM_ALARM, 95)
-        } catch (e: Exception) {
+        // 2. تهيئة مولد النغمات بشكل آمن لإنتاج صافرة التنبيه المتقطعة
+        synchronized(lock) {
           try {
-            toneGenerator = ToneGenerator(AudioManager.STREAM_MUSIC, 95)
-          } catch (e2: Exception) {
-            Log.e(TAG, "Could not initialize ToneGenerator", e2)
+            toneGenerator = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 80)
+          } catch (e: Exception) {
+            try {
+              toneGenerator = ToneGenerator(AudioManager.STREAM_MUSIC, 80)
+            } catch (e2: Exception) {
+              Log.w(TAG, "ToneGenerator not available on this device", e2)
+              toneGenerator = null
+            }
           }
         }
 
         // 3. تهيئة الاهتزاز التكراري
-        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-          val vm = appContext.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
-          vm?.defaultVibrator
-        } else {
-          @Suppress("DEPRECATION")
-          appContext.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        val vibrator = try {
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val vm = appContext.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+            vm?.defaultVibrator
+          } else {
+            @Suppress("DEPRECATION")
+            appContext.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+          }
+        } catch (e: Exception) {
+          null
         }
 
-        val pattern = longArrayOf(0, 350, 150, 350, 150, 600)
+        val pattern = longArrayOf(0, 300, 200, 300, 200, 500)
 
         // حلقة تكرار النغمات والاهتزاز طالما المنبه يعمل
         while (isActive && isPlaying) {
-          // نبضة نغمة سريعة تحاكي وصول طلب أوبر الذكي
-          toneGenerator?.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 280)
+          // تشغيل نبضة نغمة قصيرة بأمان
+          synchronized(lock) {
+            if (isPlaying) {
+              try {
+                toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP2, 180)
+              } catch (e: Exception) {
+                Log.w(TAG, "Safe tone start caught", e)
+              }
+            }
+          }
 
           // تشغيل نبضات الاهتزاز
           try {
@@ -87,17 +107,15 @@ object DispatchAlarmManager {
               vibrator?.vibrate(pattern, -1)
             }
           } catch (e: Exception) {
-            Log.w(TAG, "Vibration failed", e)
+            Log.w(TAG, "Safe vibration caught", e)
           }
 
-          delay(400)
-          toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP2, 220)
-          delay(800)
+          delay(900)
         }
       } catch (e: CancellationException) {
-        // تم الإلغاء بشكل طبيعي
+        // إلغاء طبيعي
       } catch (e: Exception) {
-        Log.e(TAG, "Error in alarm loop", e)
+        Log.w(TAG, "Alarm loop caught exception", e)
       } finally {
         cleanupResources(appContext)
       }
@@ -105,47 +123,60 @@ object DispatchAlarmManager {
   }
 
   /**
-   * إيقاف المنبه فوراً وتحرير كافة الموارد
+   * إيقاف المنبه فوراً وتحرير كافة الموارد بأمان
    */
   fun stopAlarm(context: Context? = null) {
-    isPlaying = false
+    synchronized(lock) {
+      isPlaying = false
+    }
     alarmJob?.cancel()
     alarmJob = null
     cleanupResources(context?.applicationContext)
   }
 
   private fun cleanupResources(context: Context?) {
-    try {
-      ringtone?.let {
-        if (it.isPlaying) {
-          it.stop()
+    synchronized(lock) {
+      try {
+        ringtone?.let {
+          if (it.isPlaying) {
+            it.stop()
+          }
         }
+      } catch (e: Exception) {
+        Log.w(TAG, "Safe ringtone cleanup", e)
+      } finally {
+        ringtone = null
       }
-      ringtone = null
-    } catch (e: Exception) {
-      Log.w(TAG, "Error stopping ringtone", e)
-    }
 
-    try {
-      toneGenerator?.release()
-      toneGenerator = null
-    } catch (e: Exception) {
-      Log.w(TAG, "Error releasing ToneGenerator", e)
-    }
-
-    try {
-      if (context != null) {
-        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-          val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
-          vm?.defaultVibrator
-        } else {
-          @Suppress("DEPRECATION")
-          context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+      try {
+        toneGenerator?.let { tg ->
+          try {
+            tg.stopTone()
+          } catch (e: Exception) {
+            // Ignored
+          }
+          tg.release()
         }
-        vibrator?.cancel()
+      } catch (e: Exception) {
+        Log.w(TAG, "Safe ToneGenerator cleanup", e)
+      } finally {
+        toneGenerator = null
       }
-    } catch (e: Exception) {
-      Log.w(TAG, "Error cancelling vibration", e)
+
+      try {
+        if (context != null) {
+          val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+            vm?.defaultVibrator
+          } else {
+            @Suppress("DEPRECATION")
+            context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+          }
+          vibrator?.cancel()
+        }
+      } catch (e: Exception) {
+        Log.w(TAG, "Safe vibrator cleanup", e)
+      }
     }
   }
 }

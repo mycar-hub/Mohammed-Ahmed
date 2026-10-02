@@ -335,6 +335,50 @@ fun HomeScreen(
               )
             }
 
+            // Warning if office location is not activated / postponed
+            if (!currentUser.canAcceptRequests()) {
+              Surface(
+                color = CrimsonContainer,
+                shape = RoundedCornerShape(10.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CrimsonError.copy(alpha = 0.6f)),
+                modifier = Modifier.fillMaxWidth()
+              ) {
+                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                  Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Icon(Icons.Default.WarningAmber, contentDescription = null, tint = CrimsonError, modifier = Modifier.size(18.dp))
+                    Text(
+                      text = "تنبيه: موقع المكتب الجغرافي مؤجل ولم يُفعّل بعد",
+                      fontWeight = FontWeight.Bold,
+                      fontSize = 11.5.sp,
+                      color = CrimsonError
+                    )
+                  }
+                  Text(
+                    text = "وفقاً للائحة المنصة، لا يمكنك استقبال الطلبات الفورية أو تقديم عروض أتعاب قبل تفعيل واعتماد الموقع الرسمي للمكتب.",
+                    fontSize = 10.sp,
+                    color = NavyDark,
+                    lineHeight = 14.sp
+                  )
+                  Button(
+                    onClick = {
+                      com.example.data.MaitreRepository.activateLawyerOfficeLocation(
+                        manualAddress = currentUser.officeAddressManually.ifBlank { "15 شارع شريف، وسط البلد، القاهرة" },
+                        latitude = 30.0444,
+                        longitude = 31.2357
+                      )
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = CrimsonError, contentColor = Color.White),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                  ) {
+                    Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(15.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("تفعيل واعتماد موقع المكتب الجغرافي الآن (GPS)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                  }
+                }
+              }
+            }
+
             Row(
               modifier = Modifier.fillMaxWidth(),
               horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -358,7 +402,7 @@ fun HomeScreen(
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
                 border = androidx.compose.foundation.BorderStroke(1.dp, GoldLight.copy(alpha = 0.5f)),
                 shape = RoundedCornerShape(10.dp),
-                enabled = isLawyerAvailable,
+                enabled = isLawyerAvailable && currentUser.canAcceptRequests(),
                 modifier = Modifier.weight(1f)
               ) {
                 Icon(Icons.Default.Campaign, contentDescription = null, modifier = Modifier.size(15.dp))
@@ -395,25 +439,25 @@ fun HomeScreen(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
               ) {
                 Icon(
-                  imageVector = Icons.Default.Lock,
+                  imageVector = Icons.Default.LocationCity,
                   contentDescription = null,
                   tint = GoldSecondary,
-                  modifier = Modifier.size(16.dp)
+                  modifier = Modifier.size(18.dp)
                 )
                 Text(
-                  text = "نطاق الاختصاص الجغرافي المقيد للمحامي",
+                  text = "نطاق عمل ومحافظات الترافع المعتمدة للمحامي",
                   color = Color.White,
                   fontSize = 13.sp,
                   fontWeight = FontWeight.Bold
                 )
               }
               Surface(
-                color = EmeraldContainer,
+                color = if (currentUser.canAcceptRequests()) EmeraldContainer else GoldContainer,
                 shape = RoundedCornerShape(6.dp)
               ) {
                 Text(
-                  text = "متلقٍ معتمد",
-                  color = EmeraldSuccess,
+                  text = if (currentUser.canAcceptRequests()) "نطاق معتمد ✓" else "بانتظار تفعيل الموقع",
+                  color = if (currentUser.canAcceptRequests()) EmeraldSuccess else GoldDark,
                   fontSize = 10.sp,
                   fontWeight = FontWeight.Bold,
                   modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
@@ -428,13 +472,24 @@ fun HomeScreen(
               horizontalArrangement = Arrangement.spacedBy(8.dp),
               verticalAlignment = Alignment.CenterVertically
             ) {
-              Icon(Icons.Default.LocationOn, contentDescription = null, tint = CrimsonError, modifier = Modifier.size(15.dp))
-              Text(
-                text = "المحافظة المعتمدة: ${currentUser.assignedGovernorate} • دائرة: ${currentUser.assignedDistrict}",
-                color = GoldLight,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold
-              )
+              Icon(Icons.Default.LocationOn, contentDescription = null, tint = CrimsonError, modifier = Modifier.size(16.dp))
+              Column {
+                Text(
+                  text = "المحافظة الأساسية: ${currentUser.assignedGovernorate} • دائرة: ${currentUser.assignedDistrict}",
+                  color = GoldLight,
+                  fontSize = 12.sp,
+                  fontWeight = FontWeight.Bold
+                )
+                val additionalGovs = currentUser.selectedGovernorates.filter { it != currentUser.assignedGovernorate }
+                if (additionalGovs.isNotEmpty()) {
+                  Text(
+                    text = "محافظات العمل الإضافية: ${additionalGovs.joinToString("، ")} (توسيع نطاق العمل)",
+                    color = Color.White.copy(alpha = 0.9f),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold
+                  )
+                }
+              }
             }
 
             Row(
@@ -442,9 +497,9 @@ fun HomeScreen(
               horizontalArrangement = Arrangement.spacedBy(8.dp),
               verticalAlignment = Alignment.CenterVertically
             ) {
-              Icon(Icons.Default.AccountBalance, contentDescription = null, tint = GoldSecondary, modifier = Modifier.size(15.dp))
+              Icon(Icons.Default.AccountBalance, contentDescription = null, tint = GoldSecondary, modifier = Modifier.size(16.dp))
               Text(
-                text = "الجهة القضائية: ${currentUser.assignedCourtJurisdiction}",
+                text = "الجهة القضائية المعتمدة: ${currentUser.assignedCourtJurisdiction}",
                 color = Color.White.copy(alpha = 0.85f),
                 fontSize = 11.sp
               )
@@ -456,12 +511,142 @@ fun HomeScreen(
               modifier = Modifier.fillMaxWidth()
             ) {
               Text(
-                text = "تنبيه نظامي: بصفتك محامياً، أنت متلقٍ حصري للطلبات في إطاره الجغرافي المحدد مسبقاً (${currentUser.assignedGovernorate})، ولا يجوز طلب تقديم خدمة أو إعطاء خيارات الترافع خارج المحافظة المعتمدة.",
+                text = "تطابق الطلبات الفورية: تصلك إشعارات الطلبات الفورية العاجلة الواردة في محافظتك الأساسية والمحافظات المختارة (${currentUser.selectedGovernorates.joinToString("، ")}).",
                 color = Color.White.copy(alpha = 0.75f),
                 fontSize = 10.5.sp,
                 lineHeight = 15.sp,
                 modifier = Modifier.padding(8.dp)
               )
+            }
+          }
+        }
+      }
+    }
+
+    // 1.8 Urgent Services Request Section for Clients (خدمات قانونية عاجلة وفورية: نيابة / محكمة / قسم شرطة)
+    if (currentUser.role == UserRole.CLIENT) {
+      item {
+        Card(
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+          shape = RoundedCornerShape(16.dp),
+          colors = CardDefaults.cardColors(containerColor = NavyDark),
+          border = androidx.compose.foundation.BorderStroke(1.dp, CrimsonError.copy(alpha = 0.5f))
+        ) {
+          Column(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+          ) {
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.SpaceBetween,
+              verticalAlignment = Alignment.CenterVertically
+            ) {
+              Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+              ) {
+                Box(
+                  modifier = Modifier
+                    .size(10.dp)
+                    .clip(CircleShape)
+                    .background(CrimsonError)
+                )
+                Text(
+                  text = "🚨 طلب خدمات قانونية عاجلة وفورية",
+                  color = Color.White,
+                  fontSize = 13.5.sp,
+                  fontWeight = FontWeight.Bold
+                )
+              }
+              Surface(
+                color = CrimsonError,
+                shape = RoundedCornerShape(4.dp)
+              ) {
+                Text(
+                  text = "استجابة فورية ⚡",
+                  color = Color.White,
+                  fontSize = 9.5.sp,
+                  fontWeight = FontWeight.Bold,
+                  modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+              }
+            }
+
+            Text(
+              text = "تصل الطلبات العاجلة فوراً إلى هواتف المحامين المتاحين والمقيدين في النطاق الجغرافي المعني مع تنبيه راداري لمدة 20 ثانية لسرعة الحضور والانتقال:",
+              color = GoldLight,
+              fontSize = 11.sp,
+              lineHeight = 15.sp
+            )
+
+            // Quick action chips for urgent services
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+              Surface(
+                color = Color.White.copy(alpha = 0.12f),
+                shape = RoundedCornerShape(10.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, GoldSecondary.copy(alpha = 0.3f)),
+                modifier = Modifier
+                  .weight(1f)
+                  .clip(RoundedCornerShape(10.dp))
+                  .clickable { onSelectTemplateClick("template_niyaba_attendance") }
+              ) {
+                Column(
+                  modifier = Modifier.padding(10.dp),
+                  verticalArrangement = Arrangement.spacedBy(4.dp),
+                  horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                  Icon(Icons.Default.Gavel, contentDescription = null, tint = CrimsonError, modifier = Modifier.size(20.dp))
+                  Text("حضور نيابة عامة", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                  Text("تحقيق عاجل", color = GoldLight, fontSize = 9.5.sp)
+                }
+              }
+
+              Surface(
+                color = Color.White.copy(alpha = 0.12f),
+                shape = RoundedCornerShape(10.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, GoldSecondary.copy(alpha = 0.3f)),
+                modifier = Modifier
+                  .weight(1f)
+                  .clip(RoundedCornerShape(10.dp))
+                  .clickable { onSelectTemplateClick("template_court_urgent_session") }
+              ) {
+                Column(
+                  modifier = Modifier.padding(10.dp),
+                  verticalArrangement = Arrangement.spacedBy(4.dp),
+                  horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                  Icon(Icons.Default.AccountBalance, contentDescription = null, tint = GoldSecondary, modifier = Modifier.size(20.dp))
+                  Text("جلسة محكمة عاجلة", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                  Text("تأجيل / مرافعة", color = GoldLight, fontSize = 9.5.sp)
+                }
+              }
+
+              Surface(
+                color = Color.White.copy(alpha = 0.12f),
+                shape = RoundedCornerShape(10.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, GoldSecondary.copy(alpha = 0.3f)),
+                modifier = Modifier
+                  .weight(1f)
+                  .clip(RoundedCornerShape(10.dp))
+                  .clickable { onSelectTemplateClick("template_police_station_report") }
+              ) {
+                Column(
+                  modifier = Modifier.padding(10.dp),
+                  verticalArrangement = Arrangement.spacedBy(4.dp),
+                  horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                  Icon(Icons.Default.LocalPolice, contentDescription = null, tint = EmeraldSuccess, modifier = Modifier.size(20.dp))
+                  Text("قسم شرطة", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                  Text("تحرير محضر / كفالة", color = GoldLight, fontSize = 9.5.sp)
+                }
+              }
             }
           }
         }
