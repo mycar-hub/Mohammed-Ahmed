@@ -1,6 +1,10 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -34,6 +38,81 @@ enum class UrgentServiceType(val titleAr: String, val icon: String, val defaultT
   OTHER_URGENT("خدمة عاجلة أخرى فورية", "⚡", "template_urgent_other")
 }
 
+/**
+ * مكون قائمة منسدلة أنيق وموحد يوفر مساحة الشاشة ويعطي رؤية واضحة ومباشرة للمستخدم
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MaitreDropdown(
+  label: String,
+  selectedValue: String,
+  options: List<String>,
+  onValueChanged: (String) -> Unit,
+  modifier: Modifier = Modifier,
+  leadingIcon: @Composable (() -> Unit)? = null
+) {
+  var expanded by remember { mutableStateOf(false) }
+
+  ExposedDropdownMenuBox(
+    expanded = expanded,
+    onExpandedChange = { expanded = !expanded },
+    modifier = modifier.fillMaxWidth()
+  ) {
+    OutlinedTextField(
+      value = selectedValue,
+      onValueChange = {},
+      readOnly = true,
+      label = { Text(label, fontSize = 11.5.sp) },
+      trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+      leadingIcon = leadingIcon,
+      modifier = Modifier
+        .menuAnchor()
+        .fillMaxWidth(),
+      shape = RoundedCornerShape(10.dp),
+      colors = maitreTextFieldColors()
+    )
+
+    ExposedDropdownMenu(
+      expanded = expanded,
+      onDismissRequest = { expanded = false },
+      modifier = Modifier.background(MaterialTheme.adaptiveSurface)
+    ) {
+      options.forEach { option ->
+        val isSelected = option == selectedValue
+        DropdownMenuItem(
+          text = {
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.SpaceBetween,
+              verticalAlignment = Alignment.CenterVertically
+            ) {
+              Text(
+                text = option,
+                fontSize = 12.sp,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                color = if (isSelected) NavyPrimary else MaterialTheme.adaptiveTextPrimary
+              )
+              if (isSelected) {
+                Icon(
+                  imageVector = Icons.Default.Check,
+                  contentDescription = null,
+                  tint = GoldSecondary,
+                  modifier = Modifier.size(16.dp)
+                )
+              }
+            }
+          },
+          onClick = {
+            onValueChanged(option)
+            expanded = false
+          },
+          contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
+        )
+      }
+    }
+  }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreateRequestScreen(
@@ -43,14 +122,13 @@ fun CreateRequestScreen(
   initialTemplateId: String? = null,
   onSubmitRequest: (title: String, category: RequestCategory, description: String, city: String, budget: Double, urgency: RequestUrgency, courtLocation: GeoLocation?, templateId: String?) -> Unit
 ) {
-  // Determine if entering from an urgent template
   val isInitialUrgent = initialTemplateId in listOf(
     "template_niyaba_attendance",
     "template_court_urgent_session",
     "template_police_station_report"
   )
 
-  // 0: طلب خدمة عاجلة فورية (Workflow مخصص ومختصر), 1: طرح قضية / استشارة عامة (النموذج الكامل)
+  // 0: طلب خدمة عاجلة فورية (Workflow مخصص ومختصر بقوائم منسدلة), 1: طرح قضية / استشارة عامة (النموذج الكامل)
   var isUrgentMode by remember { mutableStateOf(isInitialUrgent) }
 
   var urgentServiceType by remember {
@@ -63,7 +141,7 @@ fun CreateRequestScreen(
     )
   }
 
-  // Common location state
+  // Geographic Location
   var selectedGovernorate by remember {
     mutableStateOf(chosenLocation?.city ?: "الجيزة")
   }
@@ -82,62 +160,97 @@ fun CreateRequestScreen(
     "نيابة كلية",
     "نيابة أمن الدولة العليا",
     "نيابة الأموال العامة والشؤون المالية",
-    "نيابة الأسرة",
+    "نيابة الأسرة (أحوال شخصية)",
     "نيابة المرور",
     "نيابة الأحداث",
-    "نيابة استئناف"
+    "نيابة استئناف",
+    "أخرى (تحديد نوع النيابة يدوياً)"
   )
+  var customNiyabaType by remember { mutableStateOf("") }
+
   var niyabaSpecificLocation by remember { mutableStateOf("مقر نيابة الدقي الجزئية - مجمع محاكم الجيزة بشارع السودان") }
-  var niyabaCaseType by remember { mutableStateOf("شيك بدون رصيد / إيصال أمانة") }
+
+  // قائمة جنح وجنايات موسعة وشاملة
   val niyabaCaseTypesList = listOf(
-    "شيك بدون رصيد / إيصال أمانة",
-    "جنحة ضرب وتشاجر وإصابات",
-    "تبديد ونصب وخيانة أمانة",
-    "أموال عامة وتهرب ضريبي وجمركي",
-    "سرقة وإتلاف عمدي",
-    "جناية تلبس ومخدرات",
-    "قضية مرور وحوادث سير",
-    "نزاع أسري ومصنفات",
-    "أخرى (تحديد يدوي)"
+    "حيازة وإحراز مواد مخدرة (تعاطي / اتجار) 💊",
+    "قيادة تحت تأثير مخدر أو مسكر / تعاطي كحوليات 🚗",
+    "شيك بدون رصيد / إيصال أمانة 📜",
+    "تبديد وخيانة أمانة / منقولات 💼",
+    "نصب واحتيال واستيلاء على أموال 💸",
+    "سرقة عادية / جنحة سرقة متجر أو هاتف 🚨",
+    "سرقة بالإكراه / جناية سطو ⚠️",
+    "جنحة ضرب ومشاجرة وإحداث إصابات 🥊",
+    "إحداث عاهة مستديمة / ضرب أفضى إلى موت ⚖️",
+    "سب وقذف وابتزاز إلكتروني وتهديد 📱",
+    "حيازة سلاح أبيض / سلاح ناري بدون ترخيص 🔫",
+    "إتلاف وتخريب عمدي للأموال والممتلكات 🔨",
+    "تهرب جمركي وضريبي / قضايا أموال عامة 🏛️",
+    "رشوة وتربح واستغلال نفوذ وظيفي 📂",
+    "قضية مرور وحادث سير (قتل خطأ / إصابة خطأ) 🚦",
+    "نزاع أسري ومصنفات وحقوق ملكية 👨‍👩‍👦",
+    "شروع في قتل / تشاجر بالأسلحة ⚔️",
+    "غش تجاري واحتكار وقضايا تموينية 📦",
+    "أخرى (تحديد وكتابة نوع التهمة يدوياً) 📝"
   )
+  var niyabaCaseType by remember { mutableStateOf(niyabaCaseTypesList[0]) }
+  var customNiyabaCaseType by remember { mutableStateOf("") }
+
+  // التكييف القانوني الأولي (اختيارياً)
+  val legalClassifications = listOf(
+    "غير محدد بعد / قيد الفحص والتحقيق ⚪",
+    "جنحة (قضية جنح) ⚖️",
+    "جناية (قضية جنائية) 🔴",
+    "مخالفة إدارية / مالية 🟡"
+  )
+  var legalClassification by remember { mutableStateOf(legalClassifications[0]) }
+
   var niyabaSummary by remember {
-    mutableStateOf("استدعاء لجلسة تحقيق عاجلة في بلاغ شيك، مطلوب حضور محامٍ مقيد فوراً لمرافقة الموكل أمام وكيل النيابة وإثبات الدفوع وتقديم طلب إخلاء سبيل أو كفالة.")
+    mutableStateOf("استدعاء لجلسة تحقيق عاجلة أمام وكيل النيابة، ومطلوب حضور محامٍ مقيد فوراً لمرافقة الموكل وإثبات الدفوع والطلبات وتقديم طلب إخلاء سبيل أو كفالة.")
   }
-  var niyabaPersonRole by remember { mutableStateOf("متهم / مشكو في حقه") }
+
   val niyabaPersonRoles = listOf("متهم / مشكو في حقه", "شاكي / مقدم البلاغ", "مجني عليه", "شاهد إثبات")
-  var niyabaTiming by remember { mutableStateOf("فوري الآن (خلال 30-60 دقيقة) ⚡") }
+  var niyabaPersonRole by remember { mutableStateOf(niyabaPersonRoles[0]) }
+
   val urgentTimingOptions = listOf(
     "فوري الآن (خلال 30-60 دقيقة) ⚡",
     "خلال ساعتين اليوم",
     "جلسة تحقيق مسائية (بعد الظهر)",
     "صباح الغد الباكر"
   )
+  var niyabaTiming by remember { mutableStateOf(urgentTimingOptions[0]) }
 
   // =========================================================================
   // 2. WORKFLOW SPECIFIC: تحرير محضر بقسم الشرطة (Police Station Report)
   // =========================================================================
-  var policeReportType by remember { mutableStateOf("محضر سرقة 🚨") }
   val policeReportTypesList = listOf(
-    "محضر سرقة 🚨",
-    "محضر تبديد وخيانة أمانة 💼",
-    "محضر نصب واحتيال واستيلاء 💸",
-    "محضر إتلاف وتخريب عمدي 🔨",
-    "محضر سب وقذف وابتزاز إلكتروني 📱",
+    "محضر سرقة (منزل / سيارة / هاتف / متعلقات) 🚨",
+    "محضر حيازة أو تعاطي مواد مخدرة وكحوليات 💊",
+    "محضر تبديد وخيانة أمانة (منقولات زوجية / عهدة) 💼",
+    "محضر نصب واحتيال وتوظيف أموال 💸",
+    "محضر إتلاف وتخريب عمدي لممتلكات أو سيارة 🔨",
+    "محضر سب وقذف وابتزاز إلكتروني وتهديد (مباحث الإنترنت / القسم) 📱",
     "محضر شيك بدون رصيد / إيصال أمانة 📜",
-    "محضر تعدي وضرب وإحداث إصابات ⚠️",
-    "محضر إثبات حالة ومنازعة حيازة 🏠",
-    "محضر بلاغ مفقودات ورسمي 📄"
+    "محضر تعدي وضرب وإحداث إصابات مع تقرير طبي ⚠️",
+    "محضر إثبات حالة ومنازعة حيازة وتمكين 🏠",
+    "محضر حيازة سلاح أبيض أو سلاح ناري بدون ترخيص 🔫",
+    "محضر مشاجرة واعتداء وتبادل اتهامات 🥊",
+    "محضر بلاغ مفقودات رسمي وتوثيق واقعة 📄",
+    "محضر مضايقات وتعدي على حرمة الحياة الخاصة 🛡️",
+    "أخرى (تحديد وكتابة نوع المحضر يدوياً) 📝"
   )
+  var policeReportType by remember { mutableStateOf(policeReportTypesList[0]) }
+  var customPoliceReportType by remember { mutableStateOf("") }
+
   var policeStationName by remember { mutableStateOf("قسم شرطة الدقي") }
+
   var policeReportSummary by remember {
-    mutableStateOf("مطلوب حضور محامٍ برفقة الموكل لتحرير محضر سرقة ضد المشكو في حقهم مع توثيق الأدلة وشهادة الشهود وإثبات رقم المحضر الرسمي ومتابعته.")
+    mutableStateOf("مطلوب حضور محامٍ برفقة الموكل لتحرير المحضر الرسمي بالقسم ضد المشكو في حقهم وتوثيق الأدلة وشهادة الشهود وإثبات رقم المحضر ومتابعته.")
   }
-  var policeTiming by remember { mutableStateOf("فوري الآن (خلال 30-60 دقيقة) ⚡") }
+  var policeTiming by remember { mutableStateOf(urgentTimingOptions[0]) }
 
   // =========================================================================
   // 3. WORKFLOW SPECIFIC: جلسة محكمة مستعجلة (Urgent Court Session)
   // =========================================================================
-  var courtType by remember { mutableStateOf("محكمة الجنح الجزئية") }
   val courtTypesList = listOf(
     "محكمة الجنح الجزئية",
     "محكمة الأسرة (أحوال شخصية)",
@@ -145,17 +258,26 @@ fun CreateRequestScreen(
     "المحكمة الاقتصادية",
     "دائرة القضاء المستعجل",
     "المحكمة المدنية والتجارية",
-    "الدائرة العمالية"
+    "الدائرة العمالية",
+    "محكمة مجلس الدولة (القضاء الإداري)",
+    "أخرى (تحديد المحكمة يدوياً)"
   )
+  var courtType by remember { mutableStateOf(courtTypesList[0]) }
+  var customCourtType by remember { mutableStateOf("") }
+
   var courtComplexName by remember { mutableStateOf("مجمع محاكم الجيزة (شارع السودان)") }
-  var courtActionRequired by remember { mutableStateOf("طلب تأجيل إداري للاطلاع وتقديم المستندات ⏱️") }
+
   val courtActionOptions = listOf(
-    "طلب تأجيل إداري للاطلاع وتقديم المستندات ⏱️",
+    "طلب تأجيل إداري للاطلاع وتقديم المستندات والتوكيل ⏱️",
     "إثبات حضور وتقديم أصل التوكيل والمذكرات 📝",
-    "طلب إخلاء سبيل أو استئناف أمر الحبس 🔓",
-    "مرافعة عاجلة ودفع شكلي بعدم الاختصاص ⚖️",
-    "استخراج شهادة رسمية من الجدول أو إعلان 📋"
+    "طلب إخلاء سبيل أو استئناف أمر الحبس الاحتياطي 🔓",
+    "مرافعة عاجلة ودفع شكلي بعدم الاختصاص أو انقضاء الدعوى ⚖️",
+    "استخراج شهادة رسمية من الجدول أو إعلان بالحكم 📋",
+    "أخرى (تحديد الإجراء يدوياً) ✍️"
   )
+  var courtActionRequired by remember { mutableStateOf(courtActionOptions[0]) }
+  var customCourtAction by remember { mutableStateOf("") }
+
   var courtCaseNumberAndRoll by remember { mutableStateOf("قضية رقم 4128 لسنة 2024 جنح - رول رقم 14") }
   var courtSessionSummary by remember {
     mutableStateOf("جلسة اليوم منعقدة بالدائرة، مطلوب حضور المحامي لإثبات التوكيل والصفة وطلب أجل مناسب للاطلاع على تقرير الخبير وتقديم أصل المستندات.")
@@ -236,7 +358,7 @@ fun CreateRequestScreen(
         .padding(16.dp),
       verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-      // 1. Top Workflow Switcher: Urgent Service (مخصص ومختصر) vs Standard Case (قضية عادية)
+      // 1. Top Workflow Switcher: Urgent Service vs Standard Case
       Surface(
         color = NavyDark,
         shape = RoundedCornerShape(14.dp),
@@ -296,10 +418,10 @@ fun CreateRequestScreen(
       }
 
       // =======================================================================
-      // MODE A: URGENT SERVICE WORKFLOW (WORKFLOW مخصص ومختصر جداً)
+      // MODE A: URGENT SERVICE WORKFLOW (قوائم منسدلة أنيقة وتفاصيل شاملة)
       // =======================================================================
       if (isUrgentMode) {
-        // Urgent Service Type Selector (حضور نيابة / تحرير محضر قسم / جلسة محكمة مستعجلة)
+        // Urgent Service Type Selector
         Card(
           shape = RoundedCornerShape(14.dp),
           colors = CardDefaults.cardColors(containerColor = MaterialTheme.adaptiveSurface),
@@ -313,7 +435,7 @@ fun CreateRequestScreen(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
               Icon(Icons.Default.Bolt, contentDescription = null, tint = CrimsonError, modifier = Modifier.size(20.dp))
               Text(
-                text = "اختر نوع الخدمة العاجلة (مسار عمل مخصص وسريع):",
+                text = "نوع الخدمة العاجلة (مسار عمل منسدل وسريع):",
                 fontWeight = FontWeight.Bold,
                 fontSize = 13.sp,
                 color = MaterialTheme.adaptiveTextPrimary
@@ -371,7 +493,7 @@ fun CreateRequestScreen(
         }
 
         // ---------------------------------------------------------------------
-        // 1. حضور أمام النيابة العامة (Niyaba Workflow)
+        // 1. حضور أمام النيابة العامة (Niyaba Workflow - Dropdowns)
         // ---------------------------------------------------------------------
         if (urgentServiceType == UrgentServiceType.NIYABA_ATTENDANCE) {
           Card(
@@ -384,101 +506,75 @@ fun CreateRequestScreen(
               modifier = Modifier.padding(14.dp),
               verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-              // Section 1: Niyaba Type & Location (مكان النيابة ونوعها)
+              // 1.1 مكان النيابة ونوعها (Dropdowns)
               Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Icon(Icons.Default.AccountBalance, contentDescription = null, tint = NavyPrimary, modifier = Modifier.size(18.dp))
                 Text("1. مكان النيابة ونوعها المختص *", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = NavyDark)
               }
 
-              // A. Niyaba Type Selector
-              Text("نوع النيابة:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = TextSecondary)
-              LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(niyabaTypesList) { nType ->
-                  val isSelected = niyabaType == nType
-                  Surface(
-                    color = if (isSelected) NavyPrimary else MaterialTheme.adaptiveSurfaceVariant,
-                    shape = RoundedCornerShape(8.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) NavyDark else MaterialTheme.adaptiveBorder),
-                    modifier = Modifier
-                      .clip(RoundedCornerShape(8.dp))
-                      .clickable { niyabaType = nType }
-                  ) {
-                    Text(
-                      text = nType,
-                      color = if (isSelected) Color.White else MaterialTheme.adaptiveTextPrimary,
-                      fontSize = 11.sp,
-                      fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                      modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                    )
-                  }
-                }
+              // Dropdown: نوع النيابة
+              MaitreDropdown(
+                label = "نوع النيابة المختصة *",
+                selectedValue = niyabaType,
+                options = niyabaTypesList,
+                onValueChanged = { niyabaType = it },
+                leadingIcon = { Icon(Icons.Default.Gavel, contentDescription = null, tint = NavyPrimary) }
+              )
+
+              // حقل إدخال يدوي عند اختيار أخرى في نوع النيابة
+              AnimatedVisibility(
+                visible = niyabaType.startsWith("أخرى"),
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+              ) {
+                OutlinedTextField(
+                  value = customNiyabaType,
+                  onValueChange = { customNiyabaType = it },
+                  label = { Text("اكتب نوع النيابة يدوياً *", fontSize = 11.5.sp) },
+                  placeholder = { Text("مثال: نيابة الشؤون الضريبية والتجارية") },
+                  modifier = Modifier.fillMaxWidth(),
+                  shape = RoundedCornerShape(10.dp),
+                  colors = maitreTextFieldColors(),
+                  singleLine = true
+                )
               }
 
-              // B. Governorate & District
+              // Dropdown: المحافظة والحي
               Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                  Text("المحافظة:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = TextSecondary)
-                  LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    items(governoratesList) { gov ->
-                      val isSel = selectedGovernorate == gov
-                      Surface(
-                        color = if (isSel) GoldSecondary else MaterialTheme.adaptiveSurfaceVariant,
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier
-                          .clip(RoundedCornerShape(6.dp))
-                          .clickable {
-                            selectedGovernorate = gov
-                            val newDistricts = EgyptLocationHelper.getDistrictsForGovernorate(gov)
-                            selectedDistrict = newDistricts.firstOrNull() ?: "المركز الرئيسي"
-                            niyabaSpecificLocation = "مقر نيابة $selectedDistrict الجزئية - $selectedGovernorate"
-                          }
-                      ) {
-                        Text(
-                          text = gov,
-                          color = if (isSel) NavyDark else MaterialTheme.adaptiveTextPrimary,
-                          fontSize = 10.5.sp,
-                          fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
-                          modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
-                        )
-                      }
+                Box(modifier = Modifier.weight(1f)) {
+                  MaitreDropdown(
+                    label = "المحافظة *",
+                    selectedValue = selectedGovernorate,
+                    options = governoratesList,
+                    onValueChanged = { gov ->
+                      selectedGovernorate = gov
+                      val newDistricts = EgyptLocationHelper.getDistrictsForGovernorate(gov)
+                      selectedDistrict = newDistricts.firstOrNull() ?: "المركز الرئيسي"
+                      niyabaSpecificLocation = "مقر نيابة $selectedDistrict الجزئية - $selectedGovernorate"
+                    },
+                    leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null, tint = CrimsonError) }
+                  )
+                }
+
+                Box(modifier = Modifier.weight(1f)) {
+                  MaitreDropdown(
+                    label = "الحي / الدائرة *",
+                    selectedValue = selectedDistrict,
+                    options = districtsList,
+                    onValueChanged = { dist ->
+                      selectedDistrict = dist
+                      niyabaSpecificLocation = "مقر نيابة $dist الجزئية - $selectedGovernorate"
                     }
-                  }
+                  )
                 }
               }
 
-              Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("الحي / الدائرة التابعة للنيابة في $selectedGovernorate:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = TextSecondary)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                  items(districtsList) { district ->
-                    val isSel = selectedDistrict == district
-                    Surface(
-                      color = if (isSel) NavyPrimary else MaterialTheme.adaptiveSurfaceVariant,
-                      shape = RoundedCornerShape(6.dp),
-                      modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable {
-                          selectedDistrict = district
-                          niyabaSpecificLocation = "مقر نيابة $district الجزئية - $selectedGovernorate"
-                        }
-                    ) {
-                      Text(
-                        text = district,
-                        color = if (isSel) Color.White else MaterialTheme.adaptiveTextPrimary,
-                        fontSize = 10.5.sp,
-                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
-                      )
-                    }
-                  }
-                }
-              }
-
-              // C. Specific Niyaba headquarters description
+              // حقل المقر التفصيلي للنيابة
               OutlinedTextField(
                 value = niyabaSpecificLocation,
                 onValueChange = { niyabaSpecificLocation = it },
-                label = { Text("المقر التفصيلي للنيابة أو مجمع المحاكم *", fontSize = 11.sp) },
-                placeholder = { Text("مثال: مجمع محاكم الجيزة بشارع السودان - الدور الثالث نيابة الدقي") },
+                label = { Text("المقر التفصيلي للنيابة أو مجمع المحاكم *", fontSize = 11.5.sp) },
+                placeholder = { Text("مثال: مجمع محاكم الجلاء - الدور الرابع نيابة قصر النيل") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(10.dp),
                 colors = maitreTextFieldColors(),
@@ -487,91 +583,78 @@ fun CreateRequestScreen(
 
               Divider(color = MaterialTheme.adaptiveBorder, thickness = 0.8.dp)
 
-              // Section 2: Case Type & Brief Summary (نوع القضية وملخص الواقعة فقط)
+              // 1.2 نوع القضية والجنحة/الجناية (Dropdown غني وشامل)
               Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Icon(Icons.Default.Gavel, contentDescription = null, tint = CrimsonError, modifier = Modifier.size(18.dp))
-                Text("2. نوع القضية وملخص الواقعة فقط *", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = NavyDark)
+                Icon(Icons.Default.Security, contentDescription = null, tint = CrimsonError, modifier = Modifier.size(18.dp))
+                Text("2. نوع القضية والتكييف القانوني وملخص الواقعة *", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = NavyDark)
               }
 
-              Text("نوع التحقيق / التهمة المنسوبة:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = TextSecondary)
-              LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(niyabaCaseTypesList) { cType ->
-                  val isSelected = niyabaCaseType == cType
-                  Surface(
-                    color = if (isSelected) CrimsonError else MaterialTheme.adaptiveSurfaceVariant,
-                    shape = RoundedCornerShape(8.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) CrimsonError else MaterialTheme.adaptiveBorder),
-                    modifier = Modifier
-                      .clip(RoundedCornerShape(8.dp))
-                      .clickable { niyabaCaseType = cType }
-                  ) {
-                    Text(
-                      text = cType,
-                      color = if (isSelected) Color.White else MaterialTheme.adaptiveTextPrimary,
-                      fontSize = 11.sp,
-                      fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                      modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                    )
-                  }
-                }
+              // Dropdown: نوع القضية / التهمة (يشمل المخدرات والمسكرات والسرقة والشيكات...)
+              MaitreDropdown(
+                label = "نوع التحقيق / التهمة المنسوبة *",
+                selectedValue = niyabaCaseType,
+                options = niyabaCaseTypesList,
+                onValueChanged = { niyabaCaseType = it },
+                leadingIcon = { Icon(Icons.Default.FolderOpen, contentDescription = null, tint = GoldSecondary) }
+              )
+
+              // حقل إدخال يدوي عند اختيار أخرى في التهمة
+              AnimatedVisibility(
+                visible = niyabaCaseType.startsWith("أخرى"),
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+              ) {
+                OutlinedTextField(
+                  value = customNiyabaCaseType,
+                  onValueChange = { customNiyabaCaseType = it },
+                  label = { Text("اكتب نوع التهمة أو القضية يدوياً بالتفصيل *", fontSize = 11.5.sp) },
+                  placeholder = { Text("مثال: جنحة خيانة ائتمان وتزوير محرر عرفي") },
+                  modifier = Modifier.fillMaxWidth(),
+                  shape = RoundedCornerShape(10.dp),
+                  colors = maitreTextFieldColors(),
+                  singleLine = true
+                )
               }
 
-              // Brief Case Summary only
+              // Dropdown: التكييف القانوني الأولي (اختيارياً)
+              MaitreDropdown(
+                label = "التكييف القانوني الأولي (اختياري)",
+                selectedValue = legalClassification,
+                options = legalClassifications,
+                onValueChanged = { legalClassification = it },
+                leadingIcon = { Icon(Icons.Default.Balance, contentDescription = null, tint = NavyPrimary) }
+              )
+
+              // ملخص مقتضب فقط لموضوع التحقيق
               OutlinedTextField(
                 value = niyabaSummary,
                 onValueChange = { niyabaSummary = it },
-                label = { Text("ملخص مقتضب لموضوع التحقيق المطلوب الحضور فيه *", fontSize = 11.sp) },
-                placeholder = { Text("مثال: استدعاء لسماع الأقوال في محضر شيك، ومطلوب الحضور الفوري لمرافقة الموكل.") },
+                label = { Text("ملخص مقتضب لموضوع التحقيق فقط *", fontSize = 11.5.sp) },
+                placeholder = { Text("اكتب ملخص ما تم استدعاؤه بشأنه والطلبات العاجلة في جلسة التحقيق.") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(10.dp),
                 minLines = 3,
                 colors = maitreTextFieldColors()
               )
 
-              // Person Role & Timing
+              // Dropdowns: صفة الحاضر وموعد الحضور
               Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                  Text("صفة الشخص المطلوب مرافقته:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = TextSecondary)
-                  niyabaPersonRoles.forEach { role ->
-                    val isSel = niyabaPersonRole == role
-                    Row(
-                      modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable { niyabaPersonRole = role }
-                        .padding(vertical = 2.dp),
-                      verticalAlignment = Alignment.CenterVertically
-                    ) {
-                      RadioButton(
-                        selected = isSel,
-                        onClick = { niyabaPersonRole = role },
-                        colors = RadioButtonDefaults.colors(selectedColor = CrimsonError)
-                      )
-                      Text(role, fontSize = 10.5.sp, color = if (isSel) CrimsonError else TextPrimary, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal)
-                    }
-                  }
+                Box(modifier = Modifier.weight(1f)) {
+                  MaitreDropdown(
+                    label = "صفة الموكل المطلوب الحضور معه *",
+                    selectedValue = niyabaPersonRole,
+                    options = niyabaPersonRoles,
+                    onValueChanged = { niyabaPersonRole = it }
+                  )
                 }
 
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                  Text("موعد الحضور بالنيابة:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = TextSecondary)
-                  urgentTimingOptions.take(3).forEach { t ->
-                    val isSel = niyabaTiming == t
-                    Row(
-                      modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable { niyabaTiming = t }
-                        .padding(vertical = 2.dp),
-                      verticalAlignment = Alignment.CenterVertically
-                    ) {
-                      RadioButton(
-                        selected = isSel,
-                        onClick = { niyabaTiming = t },
-                        colors = RadioButtonDefaults.colors(selectedColor = CrimsonError)
-                      )
-                      Text(t, fontSize = 10.5.sp, color = if (isSel) CrimsonError else TextPrimary, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal)
-                    }
-                  }
+                Box(modifier = Modifier.weight(1f)) {
+                  MaitreDropdown(
+                    label = "موعد الحضور بالنيابة *",
+                    selectedValue = niyabaTiming,
+                    options = urgentTimingOptions,
+                    onValueChanged = { niyabaTiming = it }
+                  )
                 }
               }
             }
@@ -579,7 +662,7 @@ fun CreateRequestScreen(
         }
 
         // ---------------------------------------------------------------------
-        // 2. تحرير محضر بقسم الشرطة (Police Station Workflow)
+        // 2. تحرير محضر بقسم الشرطة (Police Station Workflow - Dropdowns)
         // ---------------------------------------------------------------------
         if (urgentServiceType == UrgentServiceType.POLICE_STATION_REPORT) {
           Card(
@@ -592,104 +675,73 @@ fun CreateRequestScreen(
               modifier = Modifier.padding(14.dp),
               verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-              // Section 1: Police Report Type (نوع المحضر: سرقة / تبديد / نصب / إتلاف...)
+              // 2.1 نوع المحضر (Dropdown غني)
               Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Icon(Icons.Default.LocalPolice, contentDescription = null, tint = EmeraldSuccess, modifier = Modifier.size(18.dp))
-                Text("1. نوع المحضر المطلوب تحريره *", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = NavyDark)
+                Text("1. نوع المحضر والقسم المختص *", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = NavyDark)
               }
 
-              LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(policeReportTypesList) { rType ->
-                  val isSelected = policeReportType == rType
-                  Surface(
-                    color = if (isSelected) EmeraldSuccess else MaterialTheme.adaptiveSurfaceVariant,
-                    shape = RoundedCornerShape(8.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) EmeraldSuccess else MaterialTheme.adaptiveBorder),
-                    modifier = Modifier
-                      .clip(RoundedCornerShape(8.dp))
-                      .clickable { policeReportType = rType }
-                  ) {
-                    Text(
-                      text = rType,
-                      color = if (isSelected) Color.White else MaterialTheme.adaptiveTextPrimary,
-                      fontSize = 11.sp,
-                      fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                      modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                    )
-                  }
-                }
+              MaitreDropdown(
+                label = "نوع المحضر المطلوب تحريره *",
+                selectedValue = policeReportType,
+                options = policeReportTypesList,
+                onValueChanged = { policeReportType = it },
+                leadingIcon = { Icon(Icons.Default.Assignment, contentDescription = null, tint = EmeraldSuccess) }
+              )
+
+              // حقل إدخال يدوي عند اختيار أخرى في نوع المحضر
+              AnimatedVisibility(
+                visible = policeReportType.startsWith("أخرى"),
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+              ) {
+                OutlinedTextField(
+                  value = customPoliceReportType,
+                  onValueChange = { customPoliceReportType = it },
+                  label = { Text("اكتب نوع المحضر المطلوب يدوياً *", fontSize = 11.5.sp) },
+                  placeholder = { Text("مثال: محضر شروع في سرقة وتعدي على حارس العقار") },
+                  modifier = Modifier.fillMaxWidth(),
+                  shape = RoundedCornerShape(10.dp),
+                  colors = maitreTextFieldColors(),
+                  singleLine = true
+                )
               }
 
-              Divider(color = MaterialTheme.adaptiveBorder, thickness = 0.8.dp)
-
-              // Section 2: Department / Police Station (القسم المختص)
-              Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Icon(Icons.Default.LocationOn, contentDescription = null, tint = CrimsonError, modifier = Modifier.size(18.dp))
-                Text("2. تحديد قسم الشرطة المختص جغرافياً *", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = NavyDark)
-              }
-
+              // Dropdown: المحافظة والحي
               Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                  Text("المحافظة:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = TextSecondary)
-                  LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    items(governoratesList) { gov ->
-                      val isSel = selectedGovernorate == gov
-                      Surface(
-                        color = if (isSel) GoldSecondary else MaterialTheme.adaptiveSurfaceVariant,
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier
-                          .clip(RoundedCornerShape(6.dp))
-                          .clickable {
-                            selectedGovernorate = gov
-                            val newDistricts = EgyptLocationHelper.getDistrictsForGovernorate(gov)
-                            selectedDistrict = newDistricts.firstOrNull() ?: "المركز الرئيسي"
-                            policeStationName = "قسم شرطة $selectedDistrict"
-                          }
-                      ) {
-                        Text(
-                          text = gov,
-                          color = if (isSel) NavyDark else MaterialTheme.adaptiveTextPrimary,
-                          fontSize = 10.5.sp,
-                          fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
-                          modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
-                        )
-                      }
+                Box(modifier = Modifier.weight(1f)) {
+                  MaitreDropdown(
+                    label = "المحافظة *",
+                    selectedValue = selectedGovernorate,
+                    options = governoratesList,
+                    onValueChanged = { gov ->
+                      selectedGovernorate = gov
+                      val newDistricts = EgyptLocationHelper.getDistrictsForGovernorate(gov)
+                      selectedDistrict = newDistricts.firstOrNull() ?: "المركز الرئيسي"
+                      policeStationName = "قسم شرطة $selectedDistrict"
+                    },
+                    leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null, tint = CrimsonError) }
+                  )
+                }
+
+                Box(modifier = Modifier.weight(1f)) {
+                  MaitreDropdown(
+                    label = "المركز / الحي *",
+                    selectedValue = selectedDistrict,
+                    options = districtsList,
+                    onValueChanged = { dist ->
+                      selectedDistrict = dist
+                      policeStationName = "قسم شرطة $dist"
                     }
-                  }
+                  )
                 }
               }
 
-              Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("المركز / الحي التابع للقسم:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = TextSecondary)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                  items(districtsList) { district ->
-                    val isSel = selectedDistrict == district
-                    Surface(
-                      color = if (isSel) NavyPrimary else MaterialTheme.adaptiveSurfaceVariant,
-                      shape = RoundedCornerShape(6.dp),
-                      modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable {
-                          selectedDistrict = district
-                          policeStationName = "قسم شرطة $district"
-                        }
-                    ) {
-                      Text(
-                        text = district,
-                        color = if (isSel) Color.White else MaterialTheme.adaptiveTextPrimary,
-                        fontSize = 10.5.sp,
-                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
-                      )
-                    }
-                  }
-                }
-              }
-
+              // اسم قسم الشرطة
               OutlinedTextField(
                 value = policeStationName,
                 onValueChange = { policeStationName = it },
-                label = { Text("اسم قسم الشرطة أو النقطة المختصة *", fontSize = 11.sp) },
+                label = { Text("اسم قسم الشرطة أو النقطة المختصة *", fontSize = 11.5.sp) },
                 placeholder = { Text("مثال: قسم شرطة الدقي - شارع التحرير") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(10.dp),
@@ -699,53 +751,47 @@ fun CreateRequestScreen(
 
               Divider(color = MaterialTheme.adaptiveBorder, thickness = 0.8.dp)
 
-              // Section 3: Summary of the report & timing (ملخص الواقعة والأطراف فقط)
+              // 2.2 ملخص موضوع المحضر وموعد التوجه
               Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Icon(Icons.Default.Description, contentDescription = null, tint = NavyPrimary, modifier = Modifier.size(18.dp))
-                Text("3. ملخص موضوع البلاغ والأطراف *", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = NavyDark)
+                Text("2. ملخص موضوع البلاغ والأطراف والموعد *", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = NavyDark)
               }
 
+              // Dropdown: التكييف الأولي للبلاغ (اختياري)
+              MaitreDropdown(
+                label = "التكييف القانوني الأولي للبلاغ (اختياري)",
+                selectedValue = legalClassification,
+                options = legalClassifications,
+                onValueChanged = { legalClassification = it },
+                leadingIcon = { Icon(Icons.Default.Gavel, contentDescription = null, tint = GoldDark) }
+              )
+
+              // ملخص مقتضب للبلاغ
               OutlinedTextField(
                 value = policeReportSummary,
                 onValueChange = { policeReportSummary = it },
-                label = { Text("ملخص ما حدث والمطلوب إثباته في المحضر *", fontSize = 11.sp) },
-                placeholder = { Text("اكتب مقتطفات الواقعة والأشخاص المشكو في حقهم فقط.") },
+                label = { Text("ملخص ما حدث والمطلوب إثباته في المحضر فقط *", fontSize = 11.5.sp) },
+                placeholder = { Text("اكتب مقتطفات الواقعة والأشخاص المشكو في حقهم والمستندات المرفقة فقط.") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(10.dp),
                 minLines = 3,
                 colors = maitreTextFieldColors()
               )
 
-              Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("موعد التوجه للقسم:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = TextSecondary)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                  items(urgentTimingOptions.take(3)) { t ->
-                    val isSel = policeTiming == t
-                    Surface(
-                      color = if (isSel) EmeraldSuccess else MaterialTheme.adaptiveSurfaceVariant,
-                      shape = RoundedCornerShape(8.dp),
-                      border = androidx.compose.foundation.BorderStroke(1.dp, if (isSel) EmeraldSuccess else MaterialTheme.adaptiveBorder),
-                      modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { policeTiming = t }
-                    ) {
-                      Text(
-                        text = t,
-                        color = if (isSel) Color.White else MaterialTheme.adaptiveTextPrimary,
-                        fontSize = 11.sp,
-                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                      )
-                    }
-                  }
-                }
-              }
+              // Dropdown: موعد التوجه للقسم
+              MaitreDropdown(
+                label = "موعد التوجه للقسم لمباشرة المحضر *",
+                selectedValue = policeTiming,
+                options = urgentTimingOptions,
+                onValueChanged = { policeTiming = it },
+                leadingIcon = { Icon(Icons.Default.Schedule, contentDescription = null, tint = EmeraldSuccess) }
+              )
             }
           }
         }
 
         // ---------------------------------------------------------------------
-        // 3. حضور جلسة محكمة مستعجلة (Court Session Workflow)
+        // 3. حضور جلسة محكمة مستعجلة (Court Session Workflow - Dropdowns)
         // ---------------------------------------------------------------------
         if (urgentServiceType == UrgentServiceType.COURT_URGENT_SESSION) {
           Card(
@@ -760,35 +806,67 @@ fun CreateRequestScreen(
             ) {
               Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Icon(Icons.Default.AccountBalance, contentDescription = null, tint = GoldSecondary, modifier = Modifier.size(18.dp))
-                Text("1. نوع المحكمة ومجمع المحاكم *", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = NavyDark)
+                Text("1. نوع المحكمة والمقر ورقم الدعوى *", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = NavyDark)
               }
 
-              LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(courtTypesList) { cType ->
-                  val isSelected = courtType == cType
-                  Surface(
-                    color = if (isSelected) NavyPrimary else MaterialTheme.adaptiveSurfaceVariant,
-                    shape = RoundedCornerShape(8.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) NavyDark else MaterialTheme.adaptiveBorder),
-                    modifier = Modifier
-                      .clip(RoundedCornerShape(8.dp))
-                      .clickable { courtType = cType }
-                  ) {
-                    Text(
-                      text = cType,
-                      color = if (isSelected) Color.White else MaterialTheme.adaptiveTextPrimary,
-                      fontSize = 11.sp,
-                      fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                      modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                    )
-                  }
+              MaitreDropdown(
+                label = "نوع المحكمة والدائرة *",
+                selectedValue = courtType,
+                options = courtTypesList,
+                onValueChanged = { courtType = it },
+                leadingIcon = { Icon(Icons.Default.Gavel, contentDescription = null, tint = GoldSecondary) }
+              )
+
+              AnimatedVisibility(
+                visible = courtType.startsWith("أخرى"),
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+              ) {
+                OutlinedTextField(
+                  value = customCourtType,
+                  onValueChange = { customCourtType = it },
+                  label = { Text("اكتب نوع المحكمة يدوياً *", fontSize = 11.5.sp) },
+                  placeholder = { Text("مثال: محكمة الاستئناف التجاري") },
+                  modifier = Modifier.fillMaxWidth(),
+                  shape = RoundedCornerShape(10.dp),
+                  colors = maitreTextFieldColors(),
+                  singleLine = true
+                )
+              }
+
+              // Dropdown: المحافظة
+              Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(modifier = Modifier.weight(1f)) {
+                  MaitreDropdown(
+                    label = "المحافظة *",
+                    selectedValue = selectedGovernorate,
+                    options = governoratesList,
+                    onValueChanged = { gov ->
+                      selectedGovernorate = gov
+                      val newDistricts = EgyptLocationHelper.getDistrictsForGovernorate(gov)
+                      selectedDistrict = newDistricts.firstOrNull() ?: "المركز الرئيسي"
+                      courtComplexName = "مجمع محاكم $selectedGovernorate ($selectedDistrict)"
+                    }
+                  )
+                }
+
+                Box(modifier = Modifier.weight(1f)) {
+                  MaitreDropdown(
+                    label = "المركز / الدائرة *",
+                    selectedValue = selectedDistrict,
+                    options = districtsList,
+                    onValueChanged = { dist ->
+                      selectedDistrict = dist
+                      courtComplexName = "مجمع محاكم $selectedGovernorate ($dist)"
+                    }
+                  )
                 }
               }
 
               OutlinedTextField(
                 value = courtComplexName,
                 onValueChange = { courtComplexName = it },
-                label = { Text("مقر المحكمة ومجمع المحاكم *", fontSize = 11.sp) },
+                label = { Text("مقر المحكمة ومجمع المحاكم *", fontSize = 11.5.sp) },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(10.dp),
                 colors = maitreTextFieldColors(),
@@ -798,48 +876,39 @@ fun CreateRequestScreen(
               Divider(color = MaterialTheme.adaptiveBorder, thickness = 0.8.dp)
 
               Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Icon(Icons.Default.Gavel, contentDescription = null, tint = CrimsonError, modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.FactCheck, contentDescription = null, tint = CrimsonError, modifier = Modifier.size(18.dp))
                 Text("2. الإجراء المطلوب بالجلسة ورقم القضية *", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = NavyDark)
               }
 
-              Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("الإجراء العاجل المطلوب:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = TextSecondary)
-                courtActionOptions.forEach { action ->
-                  val isSel = courtActionRequired == action
-                  Surface(
-                    color = if (isSel) GoldContainer else MaterialTheme.adaptiveSurfaceVariant,
-                    shape = RoundedCornerShape(8.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, if (isSel) GoldSecondary else MaterialTheme.adaptiveBorder),
-                    modifier = Modifier
-                      .fillMaxWidth()
-                      .clip(RoundedCornerShape(8.dp))
-                      .clickable { courtActionRequired = action }
-                  ) {
-                    Row(
-                      modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                      verticalAlignment = Alignment.CenterVertically,
-                      horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                      RadioButton(
-                        selected = isSel,
-                        onClick = { courtActionRequired = action },
-                        colors = RadioButtonDefaults.colors(selectedColor = GoldDark)
-                      )
-                      Text(
-                        text = action,
-                        fontSize = 11.5.sp,
-                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
-                        color = if (isSel) NavyDark else MaterialTheme.adaptiveTextPrimary
-                      )
-                    }
-                  }
-                }
+              MaitreDropdown(
+                label = "الإجراء العاجل المطلوب بالجلسة *",
+                selectedValue = courtActionRequired,
+                options = courtActionOptions,
+                onValueChanged = { courtActionRequired = it },
+                leadingIcon = { Icon(Icons.Default.Alarm, contentDescription = null, tint = CrimsonError) }
+              )
+
+              AnimatedVisibility(
+                visible = courtActionRequired.startsWith("أخرى"),
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+              ) {
+                OutlinedTextField(
+                  value = customCourtAction,
+                  onValueChange = { customCourtAction = it },
+                  label = { Text("اكتب الإجراء المطلوب بالجلسة يدوياً *", fontSize = 11.5.sp) },
+                  placeholder = { Text("مثال: تقديم تقرير خبير حسابي وطلب ندب لجنة ثلاثية") },
+                  modifier = Modifier.fillMaxWidth(),
+                  shape = RoundedCornerShape(10.dp),
+                  colors = maitreTextFieldColors(),
+                  singleLine = true
+                )
               }
 
               OutlinedTextField(
                 value = courtCaseNumberAndRoll,
                 onValueChange = { courtCaseNumberAndRoll = it },
-                label = { Text("رقم القضية / الدائرة / الرول *", fontSize = 11.sp) },
+                label = { Text("رقم القضية / الدائرة / الرول *", fontSize = 11.5.sp) },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(10.dp),
                 colors = maitreTextFieldColors(),
@@ -849,7 +918,7 @@ fun CreateRequestScreen(
               OutlinedTextField(
                 value = courtSessionSummary,
                 onValueChange = { courtSessionSummary = it },
-                label = { Text("ملخص ما ترغب في إنجازه بالجلسة *", fontSize = 11.sp) },
+                label = { Text("ملخص ما ترغب في إنجازه بالجلسة *", fontSize = 11.5.sp) },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(10.dp),
                 minLines = 2,
@@ -991,32 +1060,16 @@ fun CreateRequestScreen(
           )
         }
 
-        // Category Selector
-        Column {
-          Text("التصنيف القانوني *", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.adaptiveTextPrimary)
-          Spacer(modifier = Modifier.height(6.dp))
-          LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(RequestCategory.values().toList()) { cat ->
-              val isSelected = standardCategory == cat
-              Surface(
-                color = if (isSelected) NavyPrimary else MaterialTheme.adaptiveSurfaceVariant,
-                shape = RoundedCornerShape(10.dp),
-                border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.adaptiveBorder),
-                modifier = Modifier
-                  .clip(RoundedCornerShape(10.dp))
-                  .clickable { standardCategory = cat }
-              ) {
-                Text(
-                  text = cat.titleAr,
-                  color = if (isSelected) Color.White else MaterialTheme.adaptiveTextPrimary,
-                  fontSize = 11.5.sp,
-                  fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                  modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                )
-              }
-            }
-          }
-        }
+        // Dropdown: التصنيف القانوني
+        MaitreDropdown(
+          label = "التصنيف القانوني *",
+          selectedValue = standardCategory.titleAr,
+          options = RequestCategory.values().map { it.titleAr },
+          onValueChanged = { selectedTitle ->
+            standardCategory = RequestCategory.values().firstOrNull { it.titleAr == selectedTitle } ?: RequestCategory.COMMERCIAL
+          },
+          leadingIcon = { Icon(Icons.Default.Category, contentDescription = null, tint = NavyPrimary) }
+        )
 
         // Description Field
         Column {
@@ -1033,7 +1086,7 @@ fun CreateRequestScreen(
           )
         }
 
-        // Location Selection (Governorate & District)
+        // Location Dropdowns
         Card(
           shape = RoundedCornerShape(14.dp),
           colors = CardDefaults.cardColors(containerColor = MaterialTheme.adaptiveSurface),
@@ -1063,63 +1116,32 @@ fun CreateRequestScreen(
               }
             }
 
-            // Governorate Selection
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-              Text("1. المحافظة *", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = NavyDark)
-              LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(governoratesList) { gov ->
-                  val isSelected = selectedGovernorate == gov
-                  Surface(
-                    color = if (isSelected) GoldSecondary else MaterialTheme.adaptiveSurfaceVariant,
-                    shape = RoundedCornerShape(8.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) GoldDark else MaterialTheme.adaptiveBorder),
-                    modifier = Modifier
-                      .clip(RoundedCornerShape(8.dp))
-                      .clickable {
-                        selectedGovernorate = gov
-                        val newDistricts = EgyptLocationHelper.getDistrictsForGovernorate(gov)
-                        selectedDistrict = newDistricts.firstOrNull() ?: "المركز الرئيسي"
-                        courtJurisdiction = EgyptLocationHelper.getDefaultJurisdiction(selectedGovernorate, selectedDistrict)
-                      }
-                  ) {
-                    Text(
-                      text = gov,
-                      color = if (isSelected) NavyDark else MaterialTheme.adaptiveTextPrimary,
-                      fontSize = 11.5.sp,
-                      fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                      modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                    )
+            // Dropdowns for Governorate & District
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+              Box(modifier = Modifier.weight(1f)) {
+                MaitreDropdown(
+                  label = "المحافظة *",
+                  selectedValue = selectedGovernorate,
+                  options = governoratesList,
+                  onValueChanged = { gov ->
+                    selectedGovernorate = gov
+                    val newDistricts = EgyptLocationHelper.getDistrictsForGovernorate(gov)
+                    selectedDistrict = newDistricts.firstOrNull() ?: "المركز الرئيسي"
+                    courtJurisdiction = EgyptLocationHelper.getDefaultJurisdiction(selectedGovernorate, selectedDistrict)
                   }
-                }
+                )
               }
-            }
 
-            // District Selection
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-              Text("2. الحي / المركز في $selectedGovernorate *", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = NavyDark)
-              LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(districtsList) { district ->
-                  val isSelected = selectedDistrict == district
-                  Surface(
-                    color = if (isSelected) NavyPrimary else MaterialTheme.adaptiveSurfaceVariant,
-                    shape = RoundedCornerShape(8.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) NavyDark else MaterialTheme.adaptiveBorder),
-                    modifier = Modifier
-                      .clip(RoundedCornerShape(8.dp))
-                      .clickable {
-                        selectedDistrict = district
-                        courtJurisdiction = EgyptLocationHelper.getDefaultJurisdiction(selectedGovernorate, selectedDistrict)
-                      }
-                  ) {
-                    Text(
-                      text = district,
-                      color = if (isSelected) Color.White else MaterialTheme.adaptiveTextPrimary,
-                      fontSize = 11.5.sp,
-                      fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                      modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                    )
+              Box(modifier = Modifier.weight(1f)) {
+                MaitreDropdown(
+                  label = "الحي / المركز *",
+                  selectedValue = selectedDistrict,
+                  options = districtsList,
+                  onValueChanged = { dist ->
+                    selectedDistrict = dist
+                    courtJurisdiction = EgyptLocationHelper.getDefaultJurisdiction(selectedGovernorate, selectedDistrict)
                   }
-                }
+                )
               }
             }
 
@@ -1136,45 +1158,16 @@ fun CreateRequestScreen(
           }
         }
 
-        // Urgency Level
-        Card(
-          shape = RoundedCornerShape(14.dp),
-          colors = CardDefaults.cardColors(containerColor = MaterialTheme.adaptiveSurface),
-          border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.adaptiveBorder),
-          modifier = Modifier.fillMaxWidth()
-        ) {
-          Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-          ) {
-            Text("درجة الأهمية والاستعجال القضائي", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.adaptiveTextPrimary)
-            Row(
-              modifier = Modifier.fillMaxWidth(),
-              horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-              RequestUrgency.values().forEach { urgency ->
-                Surface(
-                  color = if (standardUrgency == urgency) NavyPrimary else MaterialTheme.adaptiveSurfaceVariant,
-                  shape = RoundedCornerShape(8.dp),
-                  border = if (standardUrgency == urgency) null else androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.adaptiveBorder),
-                  modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable { standardUrgency = urgency }
-                ) {
-                  Text(
-                    text = urgency.labelAr,
-                    textAlign = TextAlign.Center,
-                    color = if (standardUrgency == urgency) Color.White else MaterialTheme.adaptiveTextPrimary,
-                    fontSize = 11.sp,
-                    fontWeight = if (standardUrgency == urgency) FontWeight.Bold else FontWeight.Normal,
-                    modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp)
-                  )
-                }
-              }
-            }
-          }
-        }
+        // Dropdown: درجة الاستعجال
+        MaitreDropdown(
+          label = "درجة الأهمية والاستعجال القضائي *",
+          selectedValue = standardUrgency.labelAr,
+          options = RequestUrgency.values().map { it.labelAr },
+          onValueChanged = { selectedLabel ->
+            standardUrgency = RequestUrgency.values().firstOrNull { it.labelAr == selectedLabel } ?: RequestUrgency.NORMAL
+          },
+          leadingIcon = { Icon(Icons.Default.Speed, contentDescription = null, tint = GoldSecondary) }
+        )
       }
 
       if (showError) {
@@ -1197,7 +1190,6 @@ fun CreateRequestScreen(
       Button(
         onClick = {
           if (isUrgentMode) {
-            // Compose urgent request data based on specific service workflow
             val finalTitle: String
             val finalCategory: RequestCategory
             val finalDescription: String
@@ -1206,18 +1198,24 @@ fun CreateRequestScreen(
 
             when (urgentServiceType) {
               UrgentServiceType.NIYABA_ATTENDANCE -> {
+                val effectiveNiyabaType = if (niyabaType.startsWith("أخرى")) customNiyabaType.ifBlank { "نيابة عامة" } else niyabaType
+                val effectiveCaseType = if (niyabaCaseType.startsWith("أخرى")) customNiyabaCaseType.ifBlank { "تحقيق عام" } else niyabaCaseType
+
                 if (niyabaSummary.isBlank()) {
                   errorMessage = "يرجى كتابة ملخص القضية أو موضوع التحقيق المطلوب الحضور فيه"
                   showError = true
                   return@Button
                 }
-                finalTitle = "حضور فوري وتحقيق عاجل أمام النيابة العامة ($niyabaType - $niyabaCaseType)"
+                finalTitle = "حضور فوري وتحقيق عاجل أمام النيابة العامة ($effectiveNiyabaType - $effectiveCaseType)"
                 finalCategory = RequestCategory.CRIMINAL_FINANCIAL
                 finalTemplateId = "template_niyaba_attendance"
                 specificLocStr = niyabaSpecificLocation
                 finalDescription = buildString {
-                  appendLine("🏛️ نوع النيابة ومقرها: $niyabaType ($niyabaSpecificLocation) - محافظة $selectedGovernorate ($selectedDistrict)")
-                  appendLine("⚖️ نوع القضية / التهمة: $niyabaCaseType")
+                  appendLine("🏛️ نوع النيابة ومقرها: $effectiveNiyabaType ($niyabaSpecificLocation) - محافظة $selectedGovernorate ($selectedDistrict)")
+                  appendLine("⚖️ نوع القضية / التهمة: $effectiveCaseType")
+                  if (legalClassification != legalClassifications[0]) {
+                    appendLine("📌 التكييف القانوني الأولي: $legalClassification")
+                  }
                   appendLine("👤 صفة الحاضر المطلوب مرافقته: $niyabaPersonRole")
                   appendLine("⏱️ موعد الحضور المطلوب: $niyabaTiming")
                   appendLine("📝 ملخص موضوع التحقيق:")
@@ -1226,18 +1224,23 @@ fun CreateRequestScreen(
               }
 
               UrgentServiceType.POLICE_STATION_REPORT -> {
+                val effectiveReportType = if (policeReportType.startsWith("أخرى")) customPoliceReportType.ifBlank { "محضر شرطة" } else policeReportType
+
                 if (policeReportSummary.isBlank()) {
                   errorMessage = "يرجى كتابة ملخص موضوع المحضر المطلوب تحريره"
                   showError = true
                   return@Button
                 }
-                finalTitle = "تحرير $policeReportType ($policeStationName - $selectedGovernorate)"
+                finalTitle = "تحرير $effectiveReportType ($policeStationName - $selectedGovernorate)"
                 finalCategory = RequestCategory.CRIMINAL_FINANCIAL
                 finalTemplateId = "template_police_station_report"
                 specificLocStr = policeStationName
                 finalDescription = buildString {
-                  appendLine("🚔 نوع المحضر المطلوب تحريره: $policeReportType")
+                  appendLine("🚔 نوع المحضر المطلوب تحريره: $effectiveReportType")
                   appendLine("📍 قسم الشرطة المختص: $policeStationName ($selectedGovernorate - $selectedDistrict)")
+                  if (legalClassification != legalClassifications[0]) {
+                    appendLine("📌 التكييف القانوني الأولي: $legalClassification")
+                  }
                   appendLine("⏱️ موعد التوجه للقسم: $policeTiming")
                   appendLine("📝 ملخص موضوع المحضر والوقائع:")
                   appendLine(policeReportSummary)
@@ -1245,19 +1248,22 @@ fun CreateRequestScreen(
               }
 
               UrgentServiceType.COURT_URGENT_SESSION -> {
+                val effectiveCourtType = if (courtType.startsWith("أخرى")) customCourtType.ifBlank { "محكمة" } else courtType
+                val effectiveAction = if (courtActionRequired.startsWith("أخرى")) customCourtAction.ifBlank { "إجراء مستعجل" } else courtActionRequired
+
                 if (courtCaseNumberAndRoll.isBlank() || courtSessionSummary.isBlank()) {
                   errorMessage = "يرجى كتابة رقم الدعوى وملخص الإجراء المطلوب بالجلسة"
                   showError = true
                   return@Button
                 }
-                finalTitle = "حضور جلسة محكمة مستعجلة ($courtType - $courtActionRequired)"
+                finalTitle = "حضور جلسة محكمة مستعجلة ($effectiveCourtType - $effectiveAction)"
                 finalCategory = RequestCategory.LABOR
                 finalTemplateId = "template_court_urgent_session"
                 specificLocStr = courtComplexName
                 finalDescription = buildString {
-                  appendLine("⚖️ نوع المحكمة والمقر: $courtType ($courtComplexName - $selectedGovernorate)")
+                  appendLine("⚖️ نوع المحكمة والمقر: $effectiveCourtType ($courtComplexName - $selectedGovernorate)")
                   appendLine("📜 رقم الدعوى والرول: $courtCaseNumberAndRoll")
-                  appendLine("⏱️ الإجراء العاجل المطلوب بالجلسة: $courtActionRequired")
+                  appendLine("⏱️ الإجراء العاجل المطلوب بالجلسة: $effectiveAction")
                   appendLine("📝 تفاصيل ما يرغب الموكل في إنجازه:")
                   appendLine(courtSessionSummary)
                 }
@@ -1294,7 +1300,7 @@ fun CreateRequestScreen(
               finalCategory,
               finalDescription,
               selectedGovernorate,
-              0.0, // لا يوجد سعر محدد، يقدم المحامي عرضه
+              0.0, // السعر يقدمه المحامي
               RequestUrgency.URGENT,
               finalLocation,
               finalTemplateId
